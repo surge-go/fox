@@ -562,6 +562,7 @@ func (c *SentinelConfig) validate() []error {
 type ClusterConfig struct {
 	// MaxRedirects 是 MOVED/ASK 等集群重定向的最大处理次数。
 	// 常用字段。用于控制槽位迁移、扩缩容期间的重定向重试上限。
+	// 0 表示使用 go-redis 默认值；-1 表示禁用重定向。
 	MaxRedirects int `json:"max_redirects" yaml:"max_redirects" mapstructure:"max_redirects"`
 
 	// ReadOnly 允许只读命令路由到副本节点。
@@ -587,8 +588,8 @@ type ClusterConfig struct {
 
 func (c *ClusterConfig) validate() []error {
 	var errs []error
-	if c.MaxRedirects < 0 {
-		errs = append(errs, errors.New("redis cluster.max_redirects must be greater than or equal to 0"))
+	if c.MaxRedirects < -1 {
+		errs = append(errs, errors.New("redis cluster.max_redirects must be greater than or equal to -1"))
 	}
 	if c.FailingTimeoutSeconds < 0 {
 		errs = append(errs, errors.New("redis cluster.failing_timeout_seconds must be greater than or equal to 0"))

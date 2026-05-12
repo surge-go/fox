@@ -11,19 +11,6 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-// Client 是 go-redis/v9 提供的通用客户端接口。
-//
-// 使用类型别名而不是自定义大接口，是为了直接复用 go-redis 的命令集合、
-// pipeline、transaction、script、pub/sub 等能力，避免在本包重复维护一份
-// Redis 命令 API。NewClient 返回的实际类型取决于 Config.Mode：
-//   - ModeStandalone 返回 *redis.Client。
-//   - ModeSentinel 返回 *redis.Client，内部通过 Sentinel 发现主从节点。
-//   - ModeCluster 返回 *redis.ClusterClient。
-//
-// 业务层如果需要隔离缓存实现，建议按业务语义定义小接口，例如 UserCache、
-// TokenStore，而不是在基础设施层重新抽象完整 Redis 客户端。
-type Client = goredis.UniversalClient
-
 // NewClient 根据 Config 创建 Redis 客户端。
 //
 // 函数会先执行 Config.Validate，随后根据部署拓扑创建对应的 go-redis 客户端，
@@ -36,13 +23,13 @@ type Client = goredis.UniversalClient
 //
 // 如果 redisotel 注册失败，函数会关闭已经创建的客户端并返回错误，避免调用方
 // 拿到一个处于部分初始化状态的客户端。
-func NewClient(cfg *Config) (Client, error) {
+func NewClient(cfg *Config) (goredis.UniversalClient, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
 	var (
-		client Client
+		client goredis.UniversalClient
 		err    error
 	)
 
@@ -73,7 +60,7 @@ func NewClient(cfg *Config) (Client, error) {
 // 单入口高可用，也应在配置上表现为 standalone，由外部入口负责故障转移。
 //
 // 该模式支持普通 TCP、tcp4/tcp6 和 Unix Socket。DB 配置在该模式下有效。
-func newStandaloneClient(cfg *Config) (Client, error) {
+func newStandaloneClient(cfg *Config) (goredis.UniversalClient, error) {
 	tlsConfig, err := cfg.buildTLSConfig()
 	if err != nil {
 		return nil, err
@@ -108,9 +95,9 @@ func newStandaloneClient(cfg *Config) (Client, error) {
 //
 // go-redis 的 FailoverClient 对外仍表现为 *redis.Client，但会在内部维护
 // Sentinel 发现和主库切换。ReplicaOnly 开启后会优先连接副本节点，适合只读
-// 客户端；普通读写客户端应保持关闭。业务侧仍应通过返回的 Client 接口使用它，
-// 不需要依赖具体类型。
-func newSentinelClient(cfg *Config) (Client, error) {
+// 客户端；普通读写客户端应保持关闭。业务侧通常通过返回的
+// go-redis UniversalClient 使用它，不需要依赖具体类型。
+func newSentinelClient(cfg *Config) (goredis.UniversalClient, error) {
 	tlsConfig, err := cfg.buildTLSConfig()
 	if err != nil {
 		return nil, err
@@ -148,7 +135,7 @@ func newSentinelClient(cfg *Config) (Client, error) {
 //
 // Redis Cluster 不支持多逻辑库，Config.Validate 会要求 DB 为 0。PoolConfig 中
 // 的连接池大小在 go-redis 中按集群节点分别生效，整体连接数需要结合节点数评估。
-func newClusterClient(cfg *Config) (Client, error) {
+func newClusterClient(cfg *Config) (goredis.UniversalClient, error) {
 	tlsConfig, err := cfg.buildTLSConfig()
 	if err != nil {
 		return nil, err
@@ -395,7 +382,7 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 // exporter、MeterProvider、HTTP 暴露端口等由应用的观测初始化代码负责配置。
 // TracingEnabled 同理，只负责在 Redis 命令执行时创建 span；TraceProvider、
 // sampler、exporter 等由应用统一初始化。
-func instrumentClient(client Client, cfg *MonitoringConfig) error {
+func instrumentClient(client goredis.UniversalClient, cfg *MonitoringConfig) error {
 	if cfg == nil {
 		return nil
 	}

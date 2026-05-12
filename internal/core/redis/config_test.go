@@ -51,6 +51,20 @@ func TestConfigValidateClusterRejectsDB(t *testing.T) {
 	}
 }
 
+func TestConfigValidateClusterAllowsDisableRedirects(t *testing.T) {
+	cfg := &Config{
+		Mode:  ModeCluster,
+		Addrs: []string{"127.0.0.1:6379"},
+		Cluster: &ClusterConfig{
+			MaxRedirects: -1,
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestConfigValidateSubConfigs(t *testing.T) {
 	cfg := &Config{
 		Addrs: []string{"127.0.0.1:6379"},
