@@ -39,7 +39,7 @@ func NewClient(cfg *Config) (*gorm.DB, error) {
 
 // NewClientWithLogger 根据 Config 和显式 zap.Logger 创建 GORM 数据库客户端。
 //
-// 该入口避免依赖 zap 全局 logger，适合应用启动层已经通过 internal/core/logger
+// 该入口避免依赖 zap 全局 logger，适合应用启动层已经通过 core/logger
 // 创建好 *zap.Logger，并希望数据库日志复用同一套输出、轮转和固定字段的场景。
 // log 为 nil 时使用 zap.NewNop()，不会输出日志，也不会 panic。
 func NewClientWithLogger(cfg *Config, log *zap.Logger) (*gorm.DB, error) {
