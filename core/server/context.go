@@ -211,7 +211,7 @@ func (c *Context) BindURI(obj any) error {
 // bindOrFail 统一处理绑定错误：失败时写入 400 标准响应体并中止请求。
 func (c *Context) bindOrFail(err error) error {
 	if err != nil {
-		c.JSON(http.StatusBadRequest, NewResponse(http.StatusBadRequest, nil, err.Error(), c.TraceID()))
+		c.JSON(http.StatusBadRequest, NewResponse(http.StatusBadRequest, nil, err.Error()))
 		c.Abort()
 	}
 	return err
@@ -357,7 +357,7 @@ func (c *Context) Redirect(status int, path string) {
 
 // Ok 返回 200 成功响应，序列化 data 为标准 Response 体后中止请求。
 func (c *Context) Ok(data any) {
-	c.JSON(http.StatusOK, NewResponse(200, data, "success", c.TraceID()))
+	c.JSON(http.StatusOK, NewResponse(200, data, "success"))
 	c.Abort()
 }
 
@@ -371,12 +371,12 @@ func (c *Context) Fail(err error) {
 		return
 	}
 	if e, ok := errors.As(err); ok {
-		c.JSON(validHTTPStatusOrDefault(e.Status()), NewResponse(e.Code, nil, e.Message, c.TraceID()))
+		c.JSON(validHTTPStatusOrDefault(e.Status()), NewResponse(e.Code, nil, e.Message))
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusInternalServerError, NewResponse(http.StatusInternalServerError, nil, "internal server error", c.TraceID()))
+	c.JSON(http.StatusInternalServerError, NewResponse(http.StatusInternalServerError, nil, "internal server error"))
 	c.Abort()
 }
 
@@ -385,11 +385,4 @@ func validHTTPStatusOrDefault(status int) int {
 		return http.StatusInternalServerError
 	}
 	return status
-}
-
-// ===== 辅助方法 =====
-
-// TraceID 获取当前请求的链路追踪 ID，由中间件注入上下文。
-func (c *Context) TraceID() string {
-	return c.GetString("trace_id")
 }

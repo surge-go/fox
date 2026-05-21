@@ -118,7 +118,7 @@ func (e *Error) Unwrap() error {
 
 // ===== 辅助函数 =====
 
-// Wrap 包装已有错误为 qi Error
+// Wrap 包装已有错误为 fox Error
 func Wrap(err error, code int, message string) *Error {
 	if err == nil {
 		return New(code, message)
@@ -144,7 +144,7 @@ func WrapWithStatus(err error, code int, status int, message string) *Error {
 	}
 }
 
-// GetCode 从 error 中提取业务错误码，非 qi Error 返回 -1
+// GetCode 从 error 中提取业务错误码，非 fox Error 返回 -1
 func GetCode(err error) int {
 	var e *Error
 	if errors.As(err, &e) {
@@ -153,7 +153,7 @@ func GetCode(err error) int {
 	return -1
 }
 
-// GetStatus 从 error 中提取 HTTP 状态码，非 qi Error 返回 500
+// GetStatus 从 error 中提取 HTTP 状态码，非 fox Error 返回 500
 func GetStatus(err error) int {
 	var e *Error
 	if errors.As(err, &e) {

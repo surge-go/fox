@@ -76,8 +76,7 @@ func init() {
 func createUser(c *server.Context, req *CreateUserRequest) (*User, error) {
 	// 访问请求上下文信息
 	clientIP := c.ClientIP()
-	traceID := c.TraceID()
-	log.Printf("[createUser] trace_id=%s, client_ip=%s, name=%s", traceID, clientIP, req.Name)
+	log.Printf("[createUser] client_ip=%s, name=%s", clientIP, req.Name)
 
 	// 业务校验：检查邮箱是否已存在
 	for _, u := range users {

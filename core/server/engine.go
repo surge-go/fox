@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	foxtracing "github.com/surge-go/fox/core/tracing"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -100,9 +99,6 @@ func New(cfg *Config) (*Engine, error) {
 
 	// 自动注册内置中间件
 	e.Use(recoveryMiddleware(e.mode))
-	if tracerProvider, ok := foxtracing.GlobalTracerProvider(); ok {
-		e.Use(TracingMiddleware(tracerProvider))
-	}
 	if cfgCopy.loggerEnabled() {
 		e.Use(loggerMiddleware())
 	}

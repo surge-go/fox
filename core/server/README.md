@@ -19,7 +19,6 @@
 ### 🛡️ 企业级中间件
 - **Recovery**：自动捕获 panic 并返回 500 错误（已自动注册）
 - **Logger**：结构化日志，按模式和配置自动启用
-- **Tracing**：当全局 OpenTelemetry provider 已初始化时自动接入
 - **RateLimiter**：令牌桶算法限流，支持突发流量和自定义限流键
 
 ### 📦 渐进式增强
@@ -128,7 +127,6 @@ srv, err := server.New(cfg)
 
 - `Recovery`：始终自动注册
 - `Logger`：默认在 `debug` / `test` 模式启用，`release` 模式默认关闭
-- `Tracing`：如果你先通过 `core/tracing.New` 初始化了全局 provider，`server.New` 会自动注册；provider `Shutdown` 后会自动清理全局状态
 - `RateLimiter`：仍然保留手动注册，适合按路由组或业务域配置
 
 ### 2. 泛型包装器（Wrapper）
@@ -250,8 +248,6 @@ import "github.com/surge-go/fox/core/server/middleware"
 
 // Recovery 已自动注册，无需手动添加
 // Logger 已内置，非 release 模式默认启用；可通过 Config.EnableLogger 显式控制
-// Tracing 会在 core/tracing.New 初始化全局 provider 后自动接入，provider 关闭时自动清理
-// 如需手动指定 provider，仍可继续使用 middleware.Tracing(tracerProvider)
 
 // 添加限流中间件（每秒 100 个请求，突发容量 200）
 srv.Use(middleware.RateLimiter(&middleware.RateLimiterConfig{
@@ -274,30 +270,6 @@ api.Use(middleware.RateLimiter(&middleware.RateLimiterConfig{
 }))
 
 api.POST("/users", server.BindJSON(CreateUser))
-```
-
-#### 自动启用 Tracing
-```go
-import (
-    "context"
-
-    "github.com/surge-go/fox/core/server"
-    "github.com/surge-go/fox/core/tracing"
-)
-
-provider, err := tracing.New(context.Background(), &tracing.Config{
-    Exporter: tracing.ExporterStdout,
-})
-if err != nil {
-    panic(err)
-}
-defer provider.Shutdown(context.Background())
-
-srv, _ := server.New(&server.Config{
-    Addr: ":8080",
-    Mode: server.ModeDebug,
-})
-// 这里不需要再手动 srv.Use(Tracing(...))
 ```
 
 #### 自定义中间件
@@ -483,9 +455,8 @@ import "github.com/surge-go/fox/core/server/middleware"
 
 // 内置顺序：
 // 1. Recovery
-// 2. Tracing（如果全局 provider 已初始化）
-// 3. Logger（按 Mode / Config.EnableLogger 决定）
-// 4. 你的自定义中间件
+// 2. Logger（按 Mode / Config.EnableLogger 决定）
+// 3. 你的自定义中间件
 
 srv.Use(middleware.RateLimiter(&middleware.RateLimiterConfig{
     RequestsPerSecond: 100,
@@ -725,10 +696,9 @@ core/server/
 ├── handler.go             # 处理器转换
 ├── wrapper.go             # 泛型包装器
 ├── response.go            # 响应封装
-├── middleware.go          # 内置 Recovery、Tracing 和 Logger 中间件
+├── middleware.go          # 内置 Recovery 和 Logger 中间件
 ├── middleware/            # 中间件包
-│   ├── ratelimit.go       # 限流
-│   └── tracing.go         # 链路追踪（手动指定 provider）
+│   └── ratelimit.go       # 限流
 └── example/               # 示例代码
     ├── main.go            # 基础示例
     └── wrapper_main.go    # 包装器示例
