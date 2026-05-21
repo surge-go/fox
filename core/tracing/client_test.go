@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestNewNoneExporter(t *testing.T) {
@@ -72,6 +71,82 @@ func TestNewAllowsNilContext(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 	defer shutdownProvider(t, provider)
+}
+
+func TestNewRegistersGlobalProviderAndShutdownClearsIt(t *testing.T) {
+	provider, err := New(context.Background(), &Config{
+		Exporter: ExporterNone,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	global, ok := GlobalTracerProvider()
+	if !ok {
+		t.Fatal("GlobalTracerProvider() ok = false, want true")
+	}
+	if global != provider.TracerProvider {
+		t.Fatal("GlobalTracerProvider() did not return provider created by New")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := provider.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown() error = %v", err)
+	}
+
+	if _, ok := GlobalTracerProvider(); ok {
+		t.Fatal("GlobalTracerProvider() ok = true after Shutdown, want false")
+	}
+}
+
+func TestProviderShutdownDoesNotClearReplacementProvider(t *testing.T) {
+	first, err := New(context.Background(), &Config{
+		Exporter: ExporterNone,
+	})
+	if err != nil {
+		t.Fatalf("first New() error = %v", err)
+	}
+
+	second, err := New(context.Background(), &Config{
+		Exporter: ExporterNone,
+	})
+	if err != nil {
+		t.Fatalf("second New() error = %v", err)
+	}
+	defer shutdownProvider(t, second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := first.Shutdown(ctx); err != nil {
+		t.Fatalf("first Shutdown() error = %v", err)
+	}
+
+	global, ok := GlobalTracerProvider()
+	if !ok {
+		t.Fatal("GlobalTracerProvider() ok = false, want true")
+	}
+	if global != second.TracerProvider {
+		t.Fatal("first Shutdown() cleared replacement global provider")
+	}
+}
+
+func TestProviderShutdownIsIdempotent(t *testing.T) {
+	provider, err := New(context.Background(), &Config{
+		Exporter: ExporterNone,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := provider.Shutdown(ctx); err != nil {
+		t.Fatalf("first Shutdown() error = %v", err)
+	}
+	if err := provider.Shutdown(ctx); err != nil {
+		t.Fatalf("second Shutdown() error = %v", err)
+	}
 }
 
 func TestBuildSampler(t *testing.T) {
@@ -150,7 +225,7 @@ func resourceAttributes(attrs []attribute.KeyValue) map[string]string {
 	return values
 }
 
-func shutdownProvider(t *testing.T, provider *sdktrace.TracerProvider) {
+func shutdownProvider(t *testing.T, provider *Provider) {
 	t.Helper()
 	if provider == nil {
 		return

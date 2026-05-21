@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -13,15 +16,43 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
+
+var globalTracerProvider atomic.Pointer[sdktrace.TracerProvider]
+
+// Provider 是 tracing 包创建并托管生命周期的 TracerProvider。
+//
+// 它嵌入 OpenTelemetry SDK TracerProvider，因此仍然可以直接调用 Tracer、
+// ForceFlush 等原生方法；Shutdown 会额外清理 tracing 包维护的全局状态。
+type Provider struct {
+	*sdktrace.TracerProvider
+
+	shutdownOnce sync.Once
+	shutdownErr  error
+}
+
+// Shutdown 关闭 TracerProvider，并在当前全局 provider 仍然是自己时自动清理全局状态。
+func (p *Provider) Shutdown(ctx context.Context) error {
+	if p == nil || p.TracerProvider == nil {
+		return nil
+	}
+
+	p.shutdownOnce.Do(func() {
+		if globalTracerProvider.CompareAndSwap(p.TracerProvider, nil) {
+			otel.SetTracerProvider(oteltrace.NewNoopTracerProvider())
+		}
+		p.shutdownErr = p.TracerProvider.Shutdown(ctx)
+	})
+	return p.shutdownErr
+}
 
 // New 根据 Config 创建 OpenTelemetry TracerProvider。
 //
 // 函数会先执行 Config.Validate，然后按配置创建 resource、sampler、exporter 和
-// span processor。New 不会调用 otel.SetTracerProvider，也不会替换全局 provider；
-// 如果应用需要全局 provider，应在启动层显式调用 otel.SetTracerProvider，并在
-// 退出时调用 provider.Shutdown(ctx)。
-func New(ctx context.Context, cfg *Config) (*sdktrace.TracerProvider, error) {
+// span processor。New 会把创建出的 provider 记录为框架级全局 provider，并同步
+// 设置为 OpenTelemetry 全局 provider，方便 server.New 自动接入链路追踪。
+func New(ctx context.Context, cfg *Config) (*Provider, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -52,7 +83,27 @@ func New(ctx context.Context, cfg *Config) (*sdktrace.TracerProvider, error) {
 		options = append(options, sdktrace.WithBatcher(exporter, buildBatchOptions(cfg.Batch)...))
 	}
 
-	return sdktrace.NewTracerProvider(options...), nil
+	provider := sdktrace.NewTracerProvider(options...)
+	setGlobalTracerProvider(provider)
+	return &Provider{TracerProvider: provider}, nil
+}
+
+func setGlobalTracerProvider(provider *sdktrace.TracerProvider) {
+	globalTracerProvider.Store(provider)
+	if provider == nil {
+		otel.SetTracerProvider(oteltrace.NewNoopTracerProvider())
+		return
+	}
+	otel.SetTracerProvider(provider)
+}
+
+// GlobalTracerProvider 返回框架级全局 tracer provider。
+func GlobalTracerProvider() (*sdktrace.TracerProvider, bool) {
+	provider := globalTracerProvider.Load()
+	if provider == nil {
+		return nil, false
+	}
+	return provider, true
 }
 
 // buildExporter 根据配置创建 span exporter。
