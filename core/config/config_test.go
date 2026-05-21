@@ -557,7 +557,7 @@ labels:
 func TestGetFloat64(t *testing.T) {
 	dir := t.TempDir()
 	content := `
-metrics:
+thresholds:
   rate: 0.95
 `
 	cfgPath := writeTestConfig(t, dir, "config.yaml", content)
@@ -565,7 +565,7 @@ metrics:
 	c := New(WithConfigFile(cfgPath))
 	require.NoError(t, c.Load())
 
-	assert.InDelta(t, 0.95, c.GetFloat64("metrics.rate"), 0.001)
+	assert.InDelta(t, 0.95, c.GetFloat64("thresholds.rate"), 0.001)
 }
 
 func TestViper(t *testing.T) {
