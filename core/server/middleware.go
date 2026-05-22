@@ -4,7 +4,15 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
+)
+
+const (
+	// TraceIDKey 是 server.Context 中保存 OpenTelemetry trace id 的键。
+	TraceIDKey = "trace_id"
+	// SpanIDKey 是 server.Context 中保存 OpenTelemetry span id 的键。
+	SpanIDKey = "span_id"
 )
 
 // recoveryMiddleware 内置的 Recovery 中间件。
@@ -55,14 +63,31 @@ func logRequest(c *Context, start time.Time, statusCode int) {
 	method := c.RawRequest().Method
 	path := c.RawRequest().URL.Path
 
-	fmt.Printf("[FOX] %s | %3d | %10s | %15s | %-7s \"%s\"\n",
+	fmt.Printf("[FOX] %s | %3d | %10s | %15s | %-7s \"%s\"%s\n",
 		start.Format("2006/01/02 - 15:04:05"),
 		statusCode,
 		formatLogLatency(latency),
 		clientIP,
 		method,
 		path,
+		traceLogFields(c),
 	)
+}
+
+func traceLogFields(c *Context) string {
+	traceID := strings.TrimSpace(c.GetString(TraceIDKey))
+	spanID := strings.TrimSpace(c.GetString(SpanIDKey))
+	if traceID == "" && spanID == "" {
+		return ""
+	}
+
+	if traceID == "" {
+		return fmt.Sprintf(" | span_id=%s", spanID)
+	}
+	if spanID == "" {
+		return fmt.Sprintf(" | trace_id=%s", traceID)
+	}
+	return fmt.Sprintf(" | trace_id=%s | span_id=%s", traceID, spanID)
 }
 
 func formatLogLatency(d time.Duration) string {

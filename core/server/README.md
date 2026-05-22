@@ -20,6 +20,9 @@
 - **Recovery**：自动捕获 panic 并返回 500 错误（已自动注册）
 - **Logger**：结构化日志，按模式和配置自动启用
 - **RateLimiter**：令牌桶算法限流，支持突发流量和自定义限流键
+- **Tracing**：基于 OpenTelemetry 的 HTTP server 链路追踪中间件
+- **Metrics**：基于 OpenTelemetry 的 HTTP server 请求计数和耗时指标中间件
+- **CORS**：跨域请求控制中间件
 
 ### 📦 渐进式增强
 - 新旧代码可共存，无需一次性重构
@@ -128,6 +131,7 @@ srv, err := server.New(cfg)
 - `Recovery`：始终自动注册
 - `Logger`：默认在 `debug` / `test` 模式启用，`release` 模式默认关闭
 - `RateLimiter`：仍然保留手动注册，适合按路由组或业务域配置
+- `Tracing` / `Metrics`：不会自动注册，需要先初始化 `core/tracing` / `core/metrics`，再按需手动注册中间件
 
 ### 2. 泛型包装器（Wrapper）
 
@@ -248,6 +252,13 @@ import "github.com/surge-go/fox/core/server/middleware"
 
 // Recovery 已自动注册，无需手动添加
 // Logger 已内置，非 release 模式默认启用；可通过 Config.EnableLogger 显式控制
+// Tracing / Metrics 应在初始化 core/tracing / core/metrics 后再注册
+
+// 添加链路追踪中间件
+srv.Use(middleware.Tracing())
+
+// 添加 HTTP 指标中间件
+srv.Use(middleware.Metrics())
 
 // 添加限流中间件（每秒 100 个请求，突发容量 200）
 srv.Use(middleware.RateLimiter(&middleware.RateLimiterConfig{
@@ -271,6 +282,92 @@ api.Use(middleware.RateLimiter(&middleware.RateLimiterConfig{
 
 api.POST("/users", server.BindJSON(CreateUser))
 ```
+
+#### 链路追踪中间件
+
+`middleware.Tracing()` 使用 OpenTelemetry 全局 `TracerProvider` 和 `TextMapPropagator`。应用应先初始化 `core/tracing`，再创建 server 并注册中间件。
+注册后，Tracing 中间件会把当前请求的 `trace_id` 和 `span_id` 写入 `server.Context`，内置 Logger 会自动把它们追加到访问日志中。
+
+```go
+import (
+    "github.com/surge-go/fox/core/server/middleware"
+    "github.com/surge-go/fox/core/tracing"
+)
+
+traceProvider, err := tracing.New(ctx, tracingCfg)
+if err != nil {
+    return err
+}
+defer traceProvider.Shutdown(ctx)
+
+srv.Use(middleware.Tracing())
+```
+
+可选配置：
+
+```go
+srv.Use(middleware.Tracing(middleware.TracingConfig{
+    SkipFunc: func(c *server.Context) bool {
+        return c.RawRequest().URL.Path == "/health"
+    },
+    RecordRequestHeaders:  []string{"X-Request-ID"},
+    RecordResponseHeaders: []string{"X-Trace-ID"},
+    RecordQuery:           false,
+}))
+```
+
+默认不会记录 query，避免敏感信息和高基数。只有在明确确认安全时才开启 `RecordQuery` 或记录 header。
+
+#### 指标中间件
+
+`middleware.Metrics()` 使用 OpenTelemetry 全局 `MeterProvider`，记录：
+
+| 指标名 | 类型 | 单位 | 说明 |
+|--------|------|------|------|
+| `http.server.request.count` | Counter | `{request}` | HTTP 请求数 |
+| `http.server.request.duration` | Histogram | `s` | HTTP 请求耗时 |
+
+默认指标属性只包含低基数字段：
+
+- `http.request.method`
+- `http.response.status_code`
+- `http.route`
+
+应用应先初始化 `core/metrics`，再创建 server 并注册中间件。
+
+```go
+import (
+    "github.com/surge-go/fox/core/metrics"
+    "github.com/surge-go/fox/core/server/middleware"
+)
+
+metricsProvider, err := metrics.New(ctx, metricsCfg)
+if err != nil {
+    return err
+}
+defer metricsProvider.Shutdown(ctx)
+
+srv.Use(middleware.Metrics())
+```
+
+可选配置：
+
+```go
+import "go.opentelemetry.io/otel/attribute"
+
+srv.Use(middleware.Metrics(middleware.MetricsConfig{
+    SkipFunc: func(c *server.Context) bool {
+        return c.RawRequest().URL.Path == "/health"
+    },
+    AttributesFunc: func(c *server.Context) []attribute.KeyValue {
+        return []attribute.KeyValue{
+            attribute.String("app.component", "public-api"),
+        }
+    },
+}))
+```
+
+`AttributesFunc` 只适合追加低基数标签。不要加入 path、query、用户 ID、IP、User-Agent、请求头等高基数或敏感字段；核心 HTTP 标签不会被自定义属性覆盖。
 
 #### 自定义中间件
 ```go
@@ -458,15 +555,21 @@ import "github.com/surge-go/fox/core/server/middleware"
 // 2. Logger（按 Mode / Config.EnableLogger 决定）
 // 3. 你的自定义中间件
 
+// 推荐顺序：先 tracing，再 metrics，再限流、认证等业务中间件。
+srv.Use(middleware.Tracing())
+srv.Use(middleware.Metrics())
+
 srv.Use(middleware.RateLimiter(&middleware.RateLimiterConfig{
     RequestsPerSecond: 100,
     Burst:             200,
 }))
 
 // 用户自定义中间件（示例）
-srv.Use(CORSMiddleware())       // CORS（需自行实现）
-srv.Use(AuthMiddleware())       // 认证（需自行实现）
+srv.Use(middleware.CORS(nil))   // CORS
+srv.Use(AuthMiddleware())       // 认证
 ```
+
+`Tracing` 和 `Metrics` 依赖 OpenTelemetry 全局 provider。推荐在创建数据库、Redis、server 中间件前先完成 `core/tracing` 和 `core/metrics` 初始化，否则采集点可能注册到默认 noop provider，数据无法导出。
 
 #### 限流中间件配置
 
@@ -698,7 +801,10 @@ core/server/
 ├── response.go            # 响应封装
 ├── middleware.go          # 内置 Recovery 和 Logger 中间件
 ├── middleware/            # 中间件包
-│   └── ratelimit.go       # 限流
+│   ├── cors.go            # CORS
+│   ├── metrics.go         # HTTP 指标
+│   ├── ratelimit.go       # 限流
+│   └── tracing.go         # HTTP 链路追踪
 └── example/               # 示例代码
     ├── main.go            # 基础示例
     └── wrapper_main.go    # 包装器示例
@@ -708,6 +814,8 @@ core/server/
 
 ## 相关文档
 
+- [Fox Tracing](../tracing/README.md)
+- [Fox Metrics](../metrics/README.md)
 - [Gin 官方文档](https://gin-gonic.com/docs/)
 
 ---

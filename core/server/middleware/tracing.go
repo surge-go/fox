@@ -68,10 +68,21 @@ func Tracing(configs ...TracingConfig) server.HandlerFunc {
 		defer finishServerSpan(c, cfg, span)
 
 		c.WithContext(ctx)
+		setTraceContextValues(c, span)
 		span.SetAttributes(requestAttributes(c, cfg)...)
 
 		c.Next()
 	}
+}
+
+func setTraceContextValues(c *server.Context, span trace.Span) {
+	spanContext := span.SpanContext()
+	if !spanContext.IsValid() {
+		return
+	}
+
+	c.Set(server.TraceIDKey, spanContext.TraceID().String())
+	c.Set(server.SpanIDKey, spanContext.SpanID().String())
 }
 
 func finishServerSpan(c *server.Context, cfg TracingConfig, span trace.Span) {

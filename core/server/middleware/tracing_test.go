@@ -2,8 +2,11 @@ package middleware
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/surge-go/fox/core/server"
@@ -23,9 +26,13 @@ func TestTracingCreatesServerSpan(t *testing.T) {
 
 	engine := newTestEngine(t)
 	handlerSawSpan := false
+	var traceID string
+	var spanID string
 	engine.Use(Tracing())
 	engine.GET("/users/:id", func(c *server.Context) {
 		handlerSawSpan = trace.SpanFromContext(c.StdContext()).SpanContext().IsValid()
+		traceID = c.GetString(server.TraceIDKey)
+		spanID = c.GetString(server.SpanIDKey)
 		c.Ok(map[string]string{"status": "ok"})
 	})
 
@@ -39,6 +46,12 @@ func TestTracingCreatesServerSpan(t *testing.T) {
 	}
 	if !handlerSawSpan {
 		t.Fatal("handler did not see tracing span in server context")
+	}
+	if traceID == "" {
+		t.Fatal("handler did not see trace id in server context")
+	}
+	if spanID == "" {
+		t.Fatal("handler did not see span id in server context")
 	}
 
 	spans := recorder.Ended()
@@ -55,12 +68,47 @@ func TestTracingCreatesServerSpan(t *testing.T) {
 	if got, want := span.Parent().SpanID().String(), "00f067aa0ba902b7"; got != want {
 		t.Fatalf("parent span id = %q, want %q", got, want)
 	}
+	if got, want := traceID, span.SpanContext().TraceID().String(); got != want {
+		t.Fatalf("context trace id = %q, want %q", got, want)
+	}
+	if got, want := spanID, span.SpanContext().SpanID().String(); got != want {
+		t.Fatalf("context span id = %q, want %q", got, want)
+	}
 
 	attrs := spanAttrs(span.Attributes())
 	assertStringAttr(t, attrs, "http.request.method", "GET")
 	assertStringAttr(t, attrs, "url.path", "/users/123")
 	assertStringAttr(t, attrs, "http.route", "/users/:id")
 	assertIntAttr(t, attrs, "http.response.status_code", http.StatusOK)
+}
+
+func TestTracingAddsIDsToBuiltInLogger(t *testing.T) {
+	_, shutdown := setupTracingTest(t)
+	defer shutdown()
+
+	engine := newTestEngine(t)
+	engine.Use(Tracing())
+	engine.GET("/logged", func(c *server.Context) {
+		c.Ok(map[string]string{"status": "ok"})
+	})
+
+	output := captureStdout(t, func() {
+		req := httptest.NewRequest(http.MethodGet, "/logged", nil)
+		req.Header.Set("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+	})
+
+	if !strings.Contains(output, "trace_id=4bf92f3577b34da6a3ce929d0e0e4736") {
+		t.Fatalf("logger output missing trace id: %q", output)
+	}
+	if !strings.Contains(output, "span_id=") {
+		t.Fatalf("logger output missing span id: %q", output)
+	}
 }
 
 func TestTracingRecordsConfiguredHeadersAndQuery(t *testing.T) {
@@ -255,4 +303,32 @@ func assertStringSliceAttr(t *testing.T, attrs map[string]attribute.Value, key s
 			t.Fatalf("attribute %q[%d] = %q, want %q", key, i, gotSlice[i], want[i])
 		}
 	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+
+	os.Stdout = writer
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	out := make(chan string, 1)
+	go func() {
+		data, _ := io.ReadAll(reader)
+		out <- string(data)
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close stdout pipe: %v", err)
+	}
+	return <-out
 }

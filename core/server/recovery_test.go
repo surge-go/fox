@@ -123,6 +123,38 @@ func TestNewRegistersLoggerMiddlewareOutsideReleaseByDefault(t *testing.T) {
 	}
 }
 
+func TestNewLoggerRecordsTraceContextFields(t *testing.T) {
+	engine, err := New(&Config{
+		Mode: ModeTest,
+		Addr: ":8080",
+	})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	engine.Use(func(c *Context) {
+		c.Set(TraceIDKey, "4bf92f3577b34da6a3ce929d0e0e4736")
+		c.Set(SpanIDKey, "00f067aa0ba902b7")
+		c.Next()
+	})
+	engine.GET("/ping", func(c *Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+	output := captureStdout(t, func() {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+		engine.ServeHTTP(w, req)
+	})
+
+	if !strings.Contains(output, "trace_id=4bf92f3577b34da6a3ce929d0e0e4736") {
+		t.Fatalf("expected trace id in logger output, got %q", output)
+	}
+	if !strings.Contains(output, "span_id=00f067aa0ba902b7") {
+		t.Fatalf("expected span id in logger output, got %q", output)
+	}
+}
+
 func TestNewSkipsLoggerMiddlewareInReleaseByDefault(t *testing.T) {
 	engine, err := New(&Config{
 		Mode: ModeRelease,
