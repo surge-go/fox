@@ -51,7 +51,7 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 //
 // 函数会先执行 Config.Validate，然后按配置创建 resource、sampler、exporter 和
 // span processor。New 会把创建出的 provider 记录为框架级全局 provider，并同步
-// 设置为 OpenTelemetry 全局 provider，方便 server.New 自动接入链路追踪。
+// 设置为 OpenTelemetry 全局 provider，方便其他 instrumentation 复用。
 func New(ctx context.Context, cfg *Config) (*Provider, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -84,17 +84,13 @@ func New(ctx context.Context, cfg *Config) (*Provider, error) {
 	}
 
 	provider := sdktrace.NewTracerProvider(options...)
-	setGlobalTracerProvider(provider)
-	return &Provider{TracerProvider: provider}, nil
-}
-
-func setGlobalTracerProvider(provider *sdktrace.TracerProvider) {
-	globalTracerProvider.Store(provider)
-	if provider == nil {
-		otel.SetTracerProvider(oteltrace.NewNoopTracerProvider())
-		return
+	if !globalTracerProvider.CompareAndSwap(nil, provider) {
+		_ = provider.Shutdown(ctx)
+		return nil, errors.New("tracing provider already initialized")
 	}
 	otel.SetTracerProvider(provider)
+
+	return &Provider{TracerProvider: provider}, nil
 }
 
 // GlobalTracerProvider 返回框架级全局 tracer provider。

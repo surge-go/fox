@@ -100,34 +100,24 @@ func TestNewRegistersGlobalProviderAndShutdownClearsIt(t *testing.T) {
 	}
 }
 
-func TestProviderShutdownDoesNotClearReplacementProvider(t *testing.T) {
+func TestNewRejectsDuplicateInitialization(t *testing.T) {
 	first, err := New(context.Background(), &Config{
 		Exporter: ExporterNone,
 	})
 	if err != nil {
 		t.Fatalf("first New() error = %v", err)
 	}
+	defer shutdownProvider(t, first)
 
 	second, err := New(context.Background(), &Config{
 		Exporter: ExporterNone,
 	})
-	if err != nil {
-		t.Fatalf("second New() error = %v", err)
+	if err == nil {
+		shutdownProvider(t, second)
+		t.Fatal("second New() error = nil, want error")
 	}
-	defer shutdownProvider(t, second)
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := first.Shutdown(ctx); err != nil {
-		t.Fatalf("first Shutdown() error = %v", err)
-	}
-
-	global, ok := GlobalTracerProvider()
-	if !ok {
-		t.Fatal("GlobalTracerProvider() ok = false, want true")
-	}
-	if global != second.TracerProvider {
-		t.Fatal("first Shutdown() cleared replacement global provider")
+	if !strings.Contains(err.Error(), "already initialized") {
+		t.Fatalf("second New() error = %v, want already initialized error", err)
 	}
 }
 

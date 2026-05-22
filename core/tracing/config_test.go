@@ -144,6 +144,19 @@ func TestConfigValidateGRPCEndpointShouldNotBeHTTPURL(t *testing.T) {
 	}
 }
 
+func TestConfigValidateGRPCEndpointMayStartWithHTTPText(t *testing.T) {
+	cfg := &Config{
+		Exporter: ExporterOTLPGRPC,
+		OTLP: &OTLPConfig{
+			Endpoint: "http-collector:4317",
+		},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+}
+
 func TestConfigValidateAllowsZeroRatioSampler(t *testing.T) {
 	cfg := &Config{
 		Sampler: &SamplerConfig{

@@ -222,7 +222,7 @@ func (c *OTLPConfig) validate(exporter Exporter) []error {
 			break
 		}
 	}
-	if exporter == ExporterOTLPGRPC && strings.HasPrefix(strings.TrimSpace(c.Endpoint), "http") {
+	if exporter == ExporterOTLPGRPC && (strings.HasPrefix(strings.TrimSpace(c.Endpoint), "http://") || strings.HasPrefix(strings.TrimSpace(c.Endpoint), "https://")) {
 		errs = append(errs, errors.New("tracing otlp.endpoint for otlp_grpc should be host:port, not http url"))
 	}
 	return errs
