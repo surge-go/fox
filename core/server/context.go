@@ -333,6 +333,11 @@ func (c *Context) SetHeader(key, value string) {
 	c.ctx.Header(key, value)
 }
 
+// GetResponseHeader 获取响应头的值，键名大小写不敏感。
+func (c *Context) GetResponseHeader(key string) string {
+	return c.ctx.Writer.Header().Get(key)
+}
+
 // SetCookie 设置响应 Cookie。
 // secure 控制是否仅通过 HTTPS 传输；httpOnly 控制是否禁止 JS 访问。
 func (c *Context) SetCookie(name, value string, maxAge int, path, domain string, secure, httpOnly bool) {
