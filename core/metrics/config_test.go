@@ -8,7 +8,6 @@ import (
 
 func TestConfigValidateDefaults(t *testing.T) {
 	cfg := &Config{}
-
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -157,6 +156,20 @@ func TestConfigValidateGRPCEndpointShouldNotBeHTTPURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "metrics otlp.endpoint for otlp_grpc should be host:port") {
 		t.Fatalf("Validate() error = %v, want grpc endpoint error", err)
+	}
+}
+
+func TestConfigValidateGRPCEndpointMayStartWithHTTPText(t *testing.T) {
+	cfg := &Config{
+		Exporter: ExporterOTLPGRPC,
+		OTLP: &OTLPConfig{
+			Endpoint: "http-collector:4317",
+		},
+		Reader: &ReaderConfig{},
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
 	}
 }
 

@@ -5,37 +5,74 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	promclient "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	promexporter "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/exporters/stdout/stdoutmetric"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 )
 
+var globalMeterProvider atomic.Pointer[sdkmetric.MeterProvider]
+
+// Provider 是 metrics 包创建并托管生命周期的 MeterProvider。
+type Provider struct {
+	meterProvider      *sdkmetric.MeterProvider
+	prometheusGatherer promclient.Gatherer
+
+	shutdownOnce sync.Once
+	shutdownErr  error
+}
+
+// MeterProvider 返回底层 SDK MeterProvider。
+func (p *Provider) MeterProvider() *sdkmetric.MeterProvider {
+	if p == nil {
+		return nil
+	}
+	return p.meterProvider
+}
+
+// PrometheusGatherer 返回 Prometheus exporter 的抓取入口。
+func (p *Provider) PrometheusGatherer() promclient.Gatherer {
+	if p == nil {
+		return nil
+	}
+	return p.prometheusGatherer
+}
+
+// Shutdown 关闭 MeterProvider，并在当前全局 provider 仍然是自己时自动清理全局状态。
+func (p *Provider) Shutdown(ctx context.Context) error {
+	if p == nil || p.meterProvider == nil {
+		return nil
+	}
+
+	p.shutdownOnce.Do(func() {
+		if globalMeterProvider.CompareAndSwap(p.meterProvider, nil) {
+			otel.SetMeterProvider(metricnoop.NewMeterProvider())
+		}
+		p.shutdownErr = p.meterProvider.Shutdown(ctx)
+	})
+	return p.shutdownErr
+}
+
 // New 根据 Config 创建 OpenTelemetry MeterProvider。
-//
-// 函数会先执行 Config.Validate，然后按配置创建 resource、reader 和 exporter。
-// New 不会调用 otel.SetMeterProvider，也不会替换全局 provider；如果应用需要全局
-// MeterProvider，应在启动层显式调用 otel.SetMeterProvider，并在退出时调用
-// provider.Shutdown(ctx)。
-//
-// Prometheus exporter 默认注册到 prometheus.DefaultRegisterer。生产服务通常建议
-// 使用 NewWithRegisterer 传入业务自己的 registry，再由启动层通过 promhttp.HandlerFor
-// 把该 registry 挂到 /metrics。
-func New(ctx context.Context, cfg *Config) (*sdkmetric.MeterProvider, error) {
+func New(ctx context.Context, cfg *Config) (*Provider, error) {
 	return NewWithRegisterer(ctx, cfg, nil)
 }
 
-// NewWithRegisterer 根据 Config 和 Prometheus registerer 创建 OpenTelemetry MeterProvider。
+// NewWithRegisterer 根据 Config 和 Prometheus registerer 创建 MeterProvider。
 //
-// registerer 仅在 ExporterPrometheus 下使用；为 nil 时使用 Prometheus exporter 默认行为。
-// 该入口不会注册 HTTP 路由，调用方应在启动层自行决定 /metrics 路径、鉴权和监听端口。
-func NewWithRegisterer(ctx context.Context, cfg *Config, registerer promclient.Registerer) (*sdkmetric.MeterProvider, error) {
+// registerer 仅在 ExporterPrometheus 下使用；为 nil 时使用默认 registry。
+func NewWithRegisterer(ctx context.Context, cfg *Config, registerer promclient.Registerer) (*Provider, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -55,7 +92,7 @@ func NewWithRegisterer(ctx context.Context, cfg *Config, registerer promclient.R
 		sdkmetric.WithResource(res),
 	}
 
-	reader, err := buildReader(ctx, cfg, registerer)
+	reader, gatherer, err := buildReader(ctx, cfg, registerer)
 	if err != nil {
 		return nil, err
 	}
@@ -63,47 +100,65 @@ func NewWithRegisterer(ctx context.Context, cfg *Config, registerer promclient.R
 		options = append(options, sdkmetric.WithReader(reader))
 	}
 
-	return sdkmetric.NewMeterProvider(options...), nil
+	mp := sdkmetric.NewMeterProvider(options...)
+	if !globalMeterProvider.CompareAndSwap(nil, mp) {
+		_ = mp.Shutdown(ctx)
+		return nil, errors.New("metrics provider already initialized")
+	}
+	otel.SetMeterProvider(mp)
+
+	return &Provider{
+		meterProvider:      mp,
+		prometheusGatherer: gatherer,
+	}, nil
 }
 
-// buildReader 根据 exporter 类型创建 metrics reader。
-//
-// Prometheus 使用 pull 模式，直接把 prometheus.Exporter 作为 reader；stdout 和 OTLP
-// 使用 PeriodicReader 周期性导出；ExporterNone 不创建 reader。
-func buildReader(ctx context.Context, cfg *Config, registerer promclient.Registerer) (sdkmetric.Reader, error) {
+func buildReader(ctx context.Context, cfg *Config, registerer promclient.Registerer) (sdkmetric.Reader, promclient.Gatherer, error) {
 	switch cfg.exporterOrDefault() {
 	case ExporterNone:
-		return nil, nil
+		return nil, nil, nil
 	case ExporterPrometheus:
-		exporter, err := promexporter.New(buildPrometheusOptions(cfg.Prometheus, registerer)...)
-		if err != nil {
-			return nil, fmt.Errorf("create prometheus metrics exporter: %w", err)
+		var (
+			gatherer promclient.Gatherer
+			reg      promclient.Registerer = registerer
+		)
+		if registerer == nil {
+			registry := promclient.NewRegistry()
+			registry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+			registry.MustRegister(collectors.NewGoCollector())
+			reg = registry
+			gatherer = registry
+		} else if g, ok := registerer.(promclient.Gatherer); ok {
+			gatherer = g
 		}
-		return exporter, nil
+		exporter, err := promexporter.New(buildPrometheusOptions(cfg.Prometheus, reg)...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("create prometheus metrics exporter: %w", err)
+		}
+		return exporter, gatherer, nil
 	case ExporterStdout:
 		exporter, err := stdoutmetric.New(stdoutmetric.WithPrettyPrint())
 		if err != nil {
-			return nil, fmt.Errorf("create stdout metrics exporter: %w", err)
+			return nil, nil, fmt.Errorf("create stdout metrics exporter: %w", err)
 		}
-		return sdkmetric.NewPeriodicReader(exporter, buildPeriodicReaderOptions(cfg.Reader)...), nil
+		return sdkmetric.NewPeriodicReader(exporter, buildPeriodicReaderOptions(cfg.Reader)...), nil, nil
 	case ExporterOTLPGRPC:
 		exporter, err := otlpmetricgrpc.New(ctx, buildOTLPGRPCOptions(cfg.OTLP)...)
 		if err != nil {
-			return nil, fmt.Errorf("create otlp grpc metrics exporter: %w", err)
+			return nil, nil, fmt.Errorf("create otlp grpc metrics exporter: %w", err)
 		}
-		return sdkmetric.NewPeriodicReader(exporter, buildPeriodicReaderOptions(cfg.Reader)...), nil
+		return sdkmetric.NewPeriodicReader(exporter, buildPeriodicReaderOptions(cfg.Reader)...), nil, nil
 	case ExporterOTLPHTTP:
 		exporter, err := otlpmetrichttp.New(ctx, buildOTLPHTTPOptions(cfg.OTLP)...)
 		if err != nil {
-			return nil, fmt.Errorf("create otlp http metrics exporter: %w", err)
+			return nil, nil, fmt.Errorf("create otlp http metrics exporter: %w", err)
 		}
-		return sdkmetric.NewPeriodicReader(exporter, buildPeriodicReaderOptions(cfg.Reader)...), nil
+		return sdkmetric.NewPeriodicReader(exporter, buildPeriodicReaderOptions(cfg.Reader)...), nil, nil
 	default:
-		return nil, fmt.Errorf("unsupported metrics exporter %q", cfg.Exporter)
+		return nil, nil, fmt.Errorf("unsupported metrics exporter %q", cfg.Exporter)
 	}
 }
 
-// buildPrometheusOptions 将 PrometheusConfig 映射为 prometheus exporter 选项。
 func buildPrometheusOptions(cfg *PrometheusConfig, registerer promclient.Registerer) []promexporter.Option {
 	options := make([]promexporter.Option, 0, 5)
 	if registerer != nil {
@@ -112,8 +167,8 @@ func buildPrometheusOptions(cfg *PrometheusConfig, registerer promclient.Registe
 	if cfg == nil {
 		return options
 	}
-	if cfg.Namespace != "" {
-		options = append(options, promexporter.WithNamespace(strings.TrimSpace(cfg.Namespace)))
+	if ns := strings.TrimSpace(cfg.Namespace); ns != "" {
+		options = append(options, promexporter.WithNamespace(ns))
 	}
 	if cfg.WithoutTargetInfo {
 		options = append(options, promexporter.WithoutTargetInfo())
@@ -131,7 +186,6 @@ func buildPrometheusOptions(cfg *PrometheusConfig, registerer promclient.Registe
 	return options
 }
 
-// buildOTLPGRPCOptions 将 OTLPConfig 映射为 OTLP gRPC exporter 选项。
 func buildOTLPGRPCOptions(cfg *OTLPConfig) []otlpmetricgrpc.Option {
 	if cfg == nil {
 		return nil
@@ -146,16 +200,17 @@ func buildOTLPGRPCOptions(cfg *OTLPConfig) []otlpmetricgrpc.Option {
 	if len(cfg.Headers) > 0 {
 		options = append(options, otlpmetricgrpc.WithHeaders(cfg.Headers))
 	}
-	if cfg.Timeout > 0 {
-		options = append(options, otlpmetricgrpc.WithTimeout(cfg.Timeout))
+	if timeout := cfg.timeoutOrDefault(); timeout > 0 {
+		options = append(options, otlpmetricgrpc.WithTimeout(timeout))
 	}
-	if cfg.Compression == CompressionGzip {
+	switch cfg.compressionOrDefault() {
+	case CompressionGzip:
 		options = append(options, otlpmetricgrpc.WithCompressor("gzip"))
+	case CompressionNone:
 	}
 	return options
 }
 
-// buildOTLPHTTPOptions 将 OTLPConfig 映射为 OTLP HTTP exporter 选项。
 func buildOTLPHTTPOptions(cfg *OTLPConfig) []otlpmetrichttp.Option {
 	if cfg == nil {
 		return nil
@@ -163,11 +218,7 @@ func buildOTLPHTTPOptions(cfg *OTLPConfig) []otlpmetrichttp.Option {
 
 	endpoint := strings.TrimSpace(cfg.Endpoint)
 	options := make([]otlpmetrichttp.Option, 0, 6)
-	if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
-		options = append(options, otlpmetrichttp.WithEndpointURL(endpoint))
-	} else {
-		options = append(options, otlpmetrichttp.WithEndpoint(endpoint))
-	}
+	options = append(options, otlpmetrichttp.WithEndpointURL(endpoint))
 	if urlPath := strings.TrimSpace(cfg.URLPath); urlPath != "" {
 		options = append(options, otlpmetrichttp.WithURLPath(urlPath))
 	}
@@ -177,35 +228,32 @@ func buildOTLPHTTPOptions(cfg *OTLPConfig) []otlpmetrichttp.Option {
 	if len(cfg.Headers) > 0 {
 		options = append(options, otlpmetrichttp.WithHeaders(cfg.Headers))
 	}
-	if cfg.Timeout > 0 {
-		options = append(options, otlpmetrichttp.WithTimeout(cfg.Timeout))
+	if timeout := cfg.timeoutOrDefault(); timeout > 0 {
+		options = append(options, otlpmetrichttp.WithTimeout(timeout))
 	}
-	if cfg.Compression == CompressionGzip {
+	switch cfg.compressionOrDefault() {
+	case CompressionGzip:
 		options = append(options, otlpmetrichttp.WithCompression(otlpmetrichttp.GzipCompression))
+	case CompressionNone:
 	}
 	return options
 }
 
-// buildPeriodicReaderOptions 将 ReaderConfig 映射为 PeriodicReaderOption。
 func buildPeriodicReaderOptions(cfg *ReaderConfig) []sdkmetric.PeriodicReaderOption {
 	if cfg == nil {
-		return nil
+		cfg = &ReaderConfig{}
 	}
 
 	options := make([]sdkmetric.PeriodicReaderOption, 0, 2)
-	if cfg.Interval > 0 {
-		options = append(options, sdkmetric.WithInterval(cfg.Interval))
+	if interval := cfg.intervalOrDefault(); interval > 0 {
+		options = append(options, sdkmetric.WithInterval(interval))
 	}
-	if cfg.Timeout > 0 {
-		options = append(options, sdkmetric.WithTimeout(cfg.Timeout))
+	if timeout := cfg.timeoutOrDefault(); timeout > 0 {
+		options = append(options, sdkmetric.WithTimeout(timeout))
 	}
 	return options
 }
 
-// buildResource 构造 MeterProvider 使用的 resource。
-//
-// 默认会保留 OpenTelemetry SDK 自带的 resource，并用 ServiceConfig 和 ResourceConfig
-// 中的字段覆盖或补充稳定标签。
 func buildResource(cfg *Config) (*resource.Resource, error) {
 	attrs := make([]attribute.KeyValue, 0, 8)
 	if cfg.Service != nil {
