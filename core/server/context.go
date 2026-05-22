@@ -29,6 +29,17 @@ func (c *Context) RawRequest() *http.Request {
 	return c.ctx.Request
 }
 
+// WithContext 替换底层请求的标准 context.Context。
+//
+// 适用于 tracing、认证、超时控制等需要把派生 context 传递给后续 Handler
+// 以及数据库、Redis、HTTP client 等下游库的场景。
+func (c *Context) WithContext(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	c.ctx.Request = c.ctx.Request.WithContext(ctx)
+}
+
 // Status 返回响应的 HTTP 状态码。
 func (c *Context) Status() int {
 	return c.ctx.Writer.Status()
