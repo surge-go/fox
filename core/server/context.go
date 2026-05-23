@@ -70,6 +70,41 @@ func (c *Context) Value(key any) any {
 	return c.StdContext().Value(key)
 }
 
+// ===== 链路追踪 =====
+
+// SetTraceID 在当前请求上下文中保存 trace id。
+//
+// trace id 通常由 tracing 中间件从 OpenTelemetry span context 中写入，
+// 用于访问日志、错误排查和跨服务链路关联。业务代码一般不需要手动设置；
+// 只有在接入外部链路追踪系统或自定义 tracing 中间件时才建议调用。
+func (c *Context) SetTraceID(id string) {
+	c.Set(TraceIDKey, id)
+}
+
+// TraceID 返回当前请求上下文中的 trace id。
+//
+// 未注册 tracing 中间件、请求被 tracing SkipFunc 跳过，或尚未写入 trace id 时
+// 返回空字符串。
+func (c *Context) TraceID() string {
+	return c.GetString(TraceIDKey)
+}
+
+// SetSpanID 在当前请求上下文中保存 span id。
+//
+// span id 表示当前 HTTP server span 的标识，通常由 tracing 中间件自动写入。
+// 业务代码一般不需要手动设置。
+func (c *Context) SetSpanID(id string) {
+	c.Set(SpanIDKey, id)
+}
+
+// SpanID 返回当前请求上下文中的 span id。
+//
+// 未注册 tracing 中间件、请求被 tracing SkipFunc 跳过，或尚未写入 span id 时
+// 返回空字符串。
+func (c *Context) SpanID() string {
+	return c.GetString(SpanIDKey)
+}
+
 // ===== 上下文生命周期 =====
 
 // Copy 创建上下文的副本，用于在 goroutine 中安全使用。
@@ -222,7 +257,7 @@ func (c *Context) BindURI(obj any) error {
 // bindOrFail 统一处理绑定错误：失败时写入 400 标准响应体并中止请求。
 func (c *Context) bindOrFail(err error) error {
 	if err != nil {
-		c.JSON(http.StatusBadRequest, NewResponse(http.StatusBadRequest, nil, err.Error()))
+		c.JSON(http.StatusBadRequest, c.newResponse(http.StatusBadRequest, nil, err.Error()))
 		c.Abort()
 	}
 	return err
@@ -373,7 +408,7 @@ func (c *Context) Redirect(status int, path string) {
 
 // Ok 返回 200 成功响应，序列化 data 为标准 Response 体后中止请求。
 func (c *Context) Ok(data any) {
-	c.JSON(http.StatusOK, NewResponse(200, data, "success"))
+	c.JSON(http.StatusOK, c.newResponse(200, data, "success"))
 	c.Abort()
 }
 
@@ -387,13 +422,19 @@ func (c *Context) Fail(err error) {
 		return
 	}
 	if e, ok := errors.As(err); ok {
-		c.JSON(validHTTPStatusOrDefault(e.Status()), NewResponse(e.Code, nil, e.Message))
+		c.JSON(validHTTPStatusOrDefault(e.Status()), c.newResponse(e.Code, nil, e.Message))
 		c.Abort()
 		return
 	}
 
-	c.JSON(http.StatusInternalServerError, NewResponse(http.StatusInternalServerError, nil, "internal server error"))
+	c.JSON(http.StatusInternalServerError, c.newResponse(http.StatusInternalServerError, nil, "internal server error"))
 	c.Abort()
+}
+
+func (c *Context) newResponse(code int, data any, message string) *Response {
+	resp := NewResponse(code, data, message)
+	resp.SetTraceID(c.TraceID())
+	return resp
 }
 
 func validHTTPStatusOrDefault(status int) int {

@@ -19,29 +19,32 @@ type RouteInfo struct {
 func methodColor(method string) string {
 	switch method {
 	case http.MethodGet:
-		return "\033[34m" // 蓝
+		return colorBlue
 	case http.MethodPost:
-		return "\033[32m" // 绿
+		return colorGreen
 	case http.MethodPut:
-		return "\033[33m" // 黄
+		return colorYellow
 	case http.MethodDelete:
-		return "\033[31m" // 红
+		return colorRed
 	case http.MethodPatch:
-		return "\033[36m" // 青
+		return colorCyan
 	case http.MethodHead:
-		return "\033[35m" // 紫
+		return colorMagenta
 	case http.MethodOptions:
-		return "\033[37m" // 灰
+		return colorWhite
 	default:
-		return "\033[0m"
+		return colorReset
 	}
 }
 
 const colorReset = "\033[0m"
+const colorRed = "\033[31m"     // 红色
+const colorBlue = "\033[34m"    // 蓝色
 const colorCyan = "\033[36m"    // 青色
 const colorYellow = "\033[33m"  // 黄色
 const colorGreen = "\033[32m"   // 绿色
 const colorMagenta = "\033[35m" // 紫色
+const colorWhite = "\033[37m"   // 白色
 
 // printRoutes 打印路由表
 func (e *Engine) printRoutes() {

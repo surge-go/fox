@@ -81,8 +81,8 @@ func setTraceContextValues(c *server.Context, span trace.Span) {
 		return
 	}
 
-	c.Set(server.TraceIDKey, spanContext.TraceID().String())
-	c.Set(server.SpanIDKey, spanContext.SpanID().String())
+	c.SetTraceID(spanContext.TraceID().String())
+	c.SetSpanID(spanContext.SpanID().String())
 }
 
 func finishServerSpan(c *server.Context, cfg TracingConfig, span trace.Span) {

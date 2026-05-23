@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -129,6 +130,97 @@ func TestFailFallsBackWhenErrorStatusIsInvalid(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status 500, got %d", w.Code)
+	}
+}
+
+func TestAdvancedResponsesIncludeTraceID(t *testing.T) {
+	enableLogger := false
+	engine, err := New(&Config{
+		Mode:         ModeTest,
+		Addr:         ":8080",
+		EnableLogger: &enableLogger,
+	})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	engine.Use(func(c *Context) {
+		c.SetTraceID("trace-1")
+		c.Next()
+	})
+	engine.GET("/ok", func(c *Context) {
+		c.Ok(map[string]string{"status": "ok"})
+	})
+	engine.GET("/fail", func(c *Context) {
+		c.Fail(foxerrors.NewWithStatus(10001, http.StatusBadRequest, "bad request"))
+	})
+	engine.POST("/bind", func(c *Context) {
+		var req struct {
+			Name string `json:"name" binding:"required"`
+		}
+		if err := c.BindJSON(&req); err != nil {
+			return
+		}
+		c.Ok(nil)
+	})
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		wantCode   int
+	}{
+		{
+			name:       "ok",
+			method:     http.MethodGet,
+			path:       "/ok",
+			wantStatus: http.StatusOK,
+			wantCode:   http.StatusOK,
+		},
+		{
+			name:       "fail",
+			method:     http.MethodGet,
+			path:       "/fail",
+			wantStatus: http.StatusBadRequest,
+			wantCode:   10001,
+		},
+		{
+			name:       "bind_error",
+			method:     http.MethodPost,
+			path:       "/bind",
+			body:       `{}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			if tt.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+			w := httptest.NewRecorder()
+
+			engine.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d", tt.wantStatus, w.Code)
+			}
+
+			var resp Response
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if resp.Code != tt.wantCode {
+				t.Fatalf("response code = %d, want %d", resp.Code, tt.wantCode)
+			}
+			if resp.TraceID != "trace-1" {
+				t.Fatalf("response trace id = %q, want trace-1", resp.TraceID)
+			}
+		})
 	}
 }
 

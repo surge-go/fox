@@ -39,3 +39,27 @@ func TestContextWithContextIgnoresNil(t *testing.T) {
 		t.Fatal("WithContext(nil) replaced request context, want unchanged")
 	}
 }
+
+func TestContextTraceIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	gc, _ := gin.CreateTestContext(httptest.NewRecorder())
+	gc.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c := &Context{ctx: gc}
+
+	if got := c.TraceID(); got != "" {
+		t.Fatalf("TraceID() = %q, want empty", got)
+	}
+	if got := c.SpanID(); got != "" {
+		t.Fatalf("SpanID() = %q, want empty", got)
+	}
+
+	c.SetTraceID("trace-1")
+	c.SetSpanID("span-1")
+
+	if got := c.TraceID(); got != "trace-1" {
+		t.Fatalf("TraceID() = %q, want trace-1", got)
+	}
+	if got := c.SpanID(); got != "span-1" {
+		t.Fatalf("SpanID() = %q, want span-1", got)
+	}
+}

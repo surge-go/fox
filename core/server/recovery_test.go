@@ -91,7 +91,7 @@ func TestNewLoggerRecordsPanicRequest(t *testing.T) {
 	if !strings.Contains(output, "[FOX]") {
 		t.Fatalf("expected built-in logger output, got %q", output)
 	}
-	if !strings.Contains(output, `500`) || !strings.Contains(output, `GET     "/panic"`) {
+	if !strings.Contains(output, `500`) || !strings.Contains(output, `GET "/panic"`) {
 		t.Fatalf("expected panic access log with status 500, got %q", output)
 	}
 }
@@ -118,8 +118,39 @@ func TestNewRegistersLoggerMiddlewareOutsideReleaseByDefault(t *testing.T) {
 	if !strings.Contains(output, "[FOX]") {
 		t.Fatalf("expected built-in logger output, got %q", output)
 	}
-	if !strings.Contains(output, `GET     "/ping"`) {
+	if !strings.Contains(output, `GET "/ping"`) {
 		t.Fatalf("expected request line in logger output, got %q", output)
+	}
+}
+
+func TestNewLoggerUsesColorsAndNormalizesIPv6Loopback(t *testing.T) {
+	engine, err := New(&Config{
+		Mode: ModeTest,
+		Addr: ":8080",
+	})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	engine.GET("/health", func(c *Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	output := captureStdout(t, func() {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.RemoteAddr = "[::1]:1234"
+		engine.ServeHTTP(w, req)
+	})
+
+	if !strings.Contains(output, colorCyan+"[FOX]"+colorReset) {
+		t.Fatalf("expected colored fox prefix, got %q", output)
+	}
+	if !strings.Contains(output, colorGreen+"200"+colorReset) {
+		t.Fatalf("expected colored status code, got %q", output)
+	}
+	if !strings.Contains(output, "127.0.0.1") {
+		t.Fatalf("expected normalized loopback ip, got %q", output)
 	}
 }
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -59,13 +60,17 @@ func loggerMiddleware() HandlerFunc {
 
 func logRequest(c *Context, start time.Time, statusCode int) {
 	latency := time.Since(start)
-	clientIP := c.ClientIP()
+	clientIP := logClientIP(c.ClientIP())
 	method := c.RawRequest().Method
 	path := c.RawRequest().URL.Path
 
-	fmt.Printf("[FOX] %s | %3d | %10s | %15s | %-7s \"%s\"%s\n",
+	fmt.Printf("%s[FOX]%s %s | %s%d%s | %s | %s | %s \"%s\"%s\n",
+		colorCyan,
+		colorReset,
 		start.Format("2006/01/02 - 15:04:05"),
+		statusColor(statusCode),
 		statusCode,
+		colorReset,
 		formatLogLatency(latency),
 		clientIP,
 		method,
@@ -74,9 +79,36 @@ func logRequest(c *Context, start time.Time, statusCode int) {
 	)
 }
 
+func logClientIP(ip string) string {
+	ip = strings.TrimSpace(ip)
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	if parsed.IsLoopback() {
+		if parsed.To4() == nil {
+			return "127.0.0.1"
+		}
+	}
+	return ip
+}
+
+func statusColor(statusCode int) string {
+	switch {
+	case statusCode >= http.StatusInternalServerError:
+		return colorRed
+	case statusCode >= http.StatusBadRequest:
+		return colorYellow
+	case statusCode >= http.StatusMultipleChoices:
+		return colorCyan
+	default:
+		return colorGreen
+	}
+}
+
 func traceLogFields(c *Context) string {
-	traceID := strings.TrimSpace(c.GetString(TraceIDKey))
-	spanID := strings.TrimSpace(c.GetString(SpanIDKey))
+	traceID := strings.TrimSpace(c.TraceID())
+	spanID := strings.TrimSpace(c.SpanID())
 	if traceID == "" && spanID == "" {
 		return ""
 	}
@@ -92,13 +124,13 @@ func traceLogFields(c *Context) string {
 
 func formatLogLatency(d time.Duration) string {
 	if d < time.Microsecond {
-		return fmt.Sprintf("%7dns", d.Nanoseconds())
+		return fmt.Sprintf("%dns", d.Nanoseconds())
 	}
 	if d < time.Millisecond {
-		return fmt.Sprintf("%7dµs", d.Microseconds())
+		return fmt.Sprintf("%dµs", d.Microseconds())
 	}
 	if d < time.Second {
-		return fmt.Sprintf("%7dms", d.Milliseconds())
+		return fmt.Sprintf("%dms", d.Milliseconds())
 	}
-	return fmt.Sprintf("%7.2fs", d.Seconds())
+	return fmt.Sprintf("%.2fs", d.Seconds())
 }
