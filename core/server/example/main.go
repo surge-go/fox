@@ -2,11 +2,14 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/surge-go/fox/core/errors"
 	"github.com/surge-go/fox/core/server"
 	"github.com/surge-go/fox/core/server/middleware"
+	"github.com/surge-go/fox/pkg/openapi"
+	"github.com/surge-go/fox/pkg/openapi/ui"
 )
 
 // ===== 数据模型 =====
@@ -22,9 +25,9 @@ type User struct {
 // ===== 请求/响应结构 =====
 
 type CreateUserRequest struct {
-	Name  string `json:"name" binding:"required,min=2,max=50"`
-	Email string `json:"email" binding:"required,email"`
-	Age   int    `json:"age" binding:"omitempty,min=1,max=150"`
+	Name  string `json:"name" binding:"required,min=2,max=50" example:"张三"`
+	Email string `json:"email" binding:"required,email" example:"zhangsan@example.com"`
+	Age   int    `json:"age" binding:"omitempty,min=1,max=150" example:"25"`
 }
 
 type UpdateUserRequest struct {
@@ -219,12 +222,27 @@ func authMiddleware() server.HandlerFunc {
 // ===== 主函数 =====
 
 func main() {
-	// 1. 创建服务器配置
+	// 1. 创建服务器配置（启用 OpenAPI）
 	cfg := &server.Config{
 		Addr:         ":8080",
 		Mode:         server.ModeDebug,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
+		OpenAPI: &server.OpenAPIConfig{
+			Info: openapi.Info{
+				Title:       "Fox Server Example API",
+				Version:     "1.0.0",
+				Description: "演示 Fox Server 的 OpenAPI 自动文档生成能力",
+			},
+			Servers: []openapi.Server{
+				{URL: "http://localhost:8080", Description: "本地开发环境"},
+			},
+			Tags: []openapi.Tag{
+				{Name: "用户管理", Description: "用户 CRUD 操作"},
+				{Name: "健康检查", Description: "服务健康状态"},
+				{Name: "认证", Description: "需要认证的接口"},
+			},
+		},
 	}
 
 	// 2. 创建服务器实例
@@ -241,11 +259,54 @@ func main() {
 		Burst:             200,
 	}))
 
-	// 4. 注册健康检查路由（无需认证）
-	srv.GET("/health", server.NoReq(healthCheck))
-	srv.GET("/ping", server.Simple(ping))
+	// 4. 注册 OpenAPI 文档和 UI
+	srv.GET("/openapi.json", func(c *server.Context) {
+		doc := srv.OpenAPIDocument()
+		c.JSON(http.StatusOK, doc)
+	})
 
-	// 5. 注册 API 路由组
+	// 挂载 OpenAPI UI（访问 http://localhost:8080/docs）
+	uiHandler := ui.Handler(ui.Config{
+		Title:      "Fox Server Example API",
+		SpecURL:    "/openapi.json",
+		ProxyHosts: []string{"localhost", "127.0.0.1"},
+	})
+
+	// 使用通配符路由，让 UI handler 处理所有 /docs 下的请求
+	srv.GET("/docs/*filepath", func(c *server.Context) {
+		// 去掉 /docs 前缀，让 UI handler 看到正确的路径
+		req := c.RawRequest()
+		originalPath := req.URL.Path
+		req.URL.Path = originalPath[5:] // 去掉 "/docs"
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
+		}
+		uiHandler.ServeHTTP(c.RawWriter(), req)
+	})
+
+	// 代理端点需要支持 POST
+	srv.POST("/docs/*filepath", func(c *server.Context) {
+		req := c.RawRequest()
+		originalPath := req.URL.Path
+		req.URL.Path = originalPath[5:] // 去掉 "/docs"
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
+		}
+		uiHandler.ServeHTTP(c.RawWriter(), req)
+	})
+
+	// 5. 注册健康检查路由（无需认证）
+	srv.GET("/health", server.NoReq(healthCheck)).
+		Summary("健康检查").
+		Description("返回服务健康状态和版本信息").
+		Tags("健康检查")
+
+	srv.GET("/ping", server.Simple(ping)).
+		Summary("简单 Ping").
+		Description("快速响应检查").
+		Tags("健康检查")
+
+	// 6. 注册 API 路由组
 	api := srv.Group("/api/v1")
 
 	// API 路由组限流：每秒 50 个请求
@@ -254,20 +315,29 @@ func main() {
 		Burst:             100,
 	}))
 
-	// 用户管理路由（演示 10 种泛型包装器）
-	users := api.Group("/users")
+	// 用户管理路由（演示泛型包装器 + OpenAPI 文档）
+	userRoutes := api.Group("/users")
 	{
 		// BindJSON: POST /api/v1/users - 创建用户
-		users.POST("", server.BindJSON(createUser))
+		userRoutes.POST("", server.BindJSON(createUser)).
+			Summary("创建用户").
+			Description("创建一个新用户，邮箱必须唯一").
+			Tags("用户管理")
 
 		// BindQuery: GET /api/v1/users?page=1&page_size=10 - 用户列表
-		users.GET("", server.BindQuery(listUsers))
+		userRoutes.GET("", server.BindQuery(listUsers)).
+			Summary("查询用户列表").
+			Description("分页查询用户列表，支持关键词搜索").
+			Tags("用户管理")
 
 		// BindURI: GET /api/v1/users/:id - 获取用户详情
-		users.GET("/:id", server.BindURI(getUser))
+		userRoutes.GET("/:id", server.BindURI(getUser)).
+			Summary("获取用户详情").
+			Description("根据用户 ID 获取用户详细信息").
+			Tags("用户管理")
 
 		// 组合绑定: PUT /api/v1/users/:id - 更新用户
-		users.PUT("/:id", func(c *server.Context) {
+		userRoutes.PUT("/:id", func(c *server.Context) {
 			var uriReq GetUserRequest
 			if err := c.BindURI(&uriReq); err != nil {
 				return
@@ -285,10 +355,16 @@ func main() {
 			}
 
 			c.Ok(user)
-		})
+		}).
+			Summary("更新用户").
+			Description("更新用户信息，邮箱不能与其他用户重复").
+			Tags("用户管理")
 
 		// NoRespURI: DELETE /api/v1/users/:id - 删除用户
-		users.DELETE("/:id", server.NoRespURI(deleteUser))
+		userRoutes.DELETE("/:id", server.NoRespURI(deleteUser)).
+			Summary("删除用户").
+			Description("根据用户 ID 删除用户").
+			Tags("用户管理")
 	}
 
 	// 需要认证的路由组示例
@@ -301,18 +377,26 @@ func main() {
 				"user_id": userID,
 				"message": "This is a protected route",
 			})
-		})
+		}).
+			Summary("获取用户资料").
+			Description("需要 Bearer Token 认证").
+			Tags("认证").
+			Security("bearer")
 	}
 
-	// 6. 静态文件服务示例（需要创建 public 目录）
+	// 7. 静态文件服务示例（需要创建 public 目录）
 	// srv.Static("/static", "./public")
 	// srv.StaticFile("/favicon.ico", "./public/favicon.ico")
 
-	// 7. 启动服务器（自动优雅关闭）
+	// 8. 启动服务器（自动优雅关闭）
 	log.Println("========================================")
 	log.Println("Fox Server Example")
 	log.Println("========================================")
 	log.Println("Server starting on http://localhost:8080")
+	log.Println("")
+	log.Println("📚 OpenAPI Documentation:")
+	log.Println("  UI:   http://localhost:8080/docs")
+	log.Println("  JSON: http://localhost:8080/openapi.json")
 	log.Println("")
 	log.Println("Available endpoints:")
 	log.Println("  GET    /health                  - Health check")

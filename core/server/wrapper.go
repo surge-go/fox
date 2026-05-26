@@ -54,7 +54,7 @@ type BizHandler[Req, Resp any] func(c *Context, req *Req) (*Resp, error)
 //	// 路由注册
 //	engine.POST("/users", server.BindJSON(createUser))
 func BindJSON[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.BindJSON(&req); err != nil {
 			return // c.BindJSON 已自动返回 400 错误并中止请求
@@ -68,6 +68,11 @@ func BindJSON[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 
 		c.Ok(resp)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		respType:    typeOf[Resp](),
+		bindingType: bindingTypeJSON,
+	})
 }
 
 // BindQuery 自动绑定 URL 查询参数并包装响应。
@@ -102,7 +107,7 @@ func BindJSON[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 //	// 路由注册
 //	engine.GET("/users", server.BindQuery(listUsers))
 func BindQuery[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.BindQuery(&req); err != nil {
 			return // c.BindQuery 已自动返回 400 错误并中止请求
@@ -116,6 +121,11 @@ func BindQuery[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 
 		c.Ok(resp)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		respType:    typeOf[Resp](),
+		bindingType: bindingTypeQuery,
+	})
 }
 
 // BindURI 自动绑定 URI 路径参数并包装响应。
@@ -148,7 +158,7 @@ func BindQuery[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 //	// 路由注册
 //	engine.GET("/users/:id", server.BindURI(getUser))
 func BindURI[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.BindURI(&req); err != nil {
 			return // c.BindURI 已自动返回 400 错误并中止请求
@@ -162,6 +172,11 @@ func BindURI[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 
 		c.Ok(resp)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		respType:    typeOf[Resp](),
+		bindingType: bindingTypeURI,
+	})
 }
 
 // Bind 根据 Content-Type 自动选择绑定方式并包装响应。
@@ -187,7 +202,7 @@ func BindURI[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 //	// 路由注册（自动根据 Content-Type 选择绑定方式）
 //	engine.PUT("/users/:id", server.Bind(updateUser))
 func Bind[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.Bind(&req); err != nil {
 			return // c.Bind 已自动返回 400 错误并中止请求
@@ -201,6 +216,11 @@ func Bind[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 
 		c.Ok(resp)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		respType:    typeOf[Resp](),
+		bindingType: bindingTypeAuto,
+	})
 }
 
 // NoReq 无请求参数的 Handler，仅包装响应。
@@ -224,7 +244,7 @@ func Bind[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 //	// 路由注册
 //	engine.GET("/health", server.NoReq(healthCheck))
 func NoReq[Resp any](handler func(c *Context) (*Resp, error)) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		resp, err := handler(c)
 		if err != nil {
 			c.Fail(err)
@@ -232,6 +252,11 @@ func NoReq[Resp any](handler func(c *Context) (*Resp, error)) HandlerFunc {
 		}
 		c.Ok(resp)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		respType:    typeOf[Resp](),
+		noRequest:   true,
+		bindingType: bindingTypeNone,
+	})
 }
 
 // NoResp 无响应数据的 Handler，自动绑定请求参数。
@@ -253,7 +278,7 @@ func NoReq[Resp any](handler func(c *Context) (*Resp, error)) HandlerFunc {
 //	// 路由注册
 //	engine.DELETE("/users/:id", server.NoResp(deleteUser))
 func NoResp[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.Bind(&req); err != nil {
 			return // c.Bind 已自动返回 400 错误并中止请求
@@ -266,6 +291,11 @@ func NoResp[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 
 		c.Ok(nil)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		bindingType: bindingTypeAuto,
+		noResponse:  true,
+	})
 }
 
 // NoRespJSON 无响应数据的 Handler，自动绑定 JSON 请求体。
@@ -289,7 +319,7 @@ func NoResp[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 //	// 路由注册
 //	engine.POST("/emails/send", server.NoRespJSON(sendEmail))
 func NoRespJSON[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.BindJSON(&req); err != nil {
 			return // c.BindJSON 已自动返回 400 错误并中止请求
@@ -302,6 +332,11 @@ func NoRespJSON[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 
 		c.Ok(nil)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		bindingType: bindingTypeJSON,
+		noResponse:  true,
+	})
 }
 
 // NoRespQuery 无响应数据的 Handler，自动绑定 URL 查询参数。
@@ -323,7 +358,7 @@ func NoRespJSON[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 //	// 路由注册
 //	engine.GET("/logout", server.NoRespQuery(logout))
 func NoRespQuery[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.BindQuery(&req); err != nil {
 			return // c.BindQuery 已自动返回 400 错误并中止请求
@@ -336,6 +371,11 @@ func NoRespQuery[Req any](handler func(c *Context, req *Req) error) HandlerFunc 
 
 		c.Ok(nil)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		bindingType: bindingTypeQuery,
+		noResponse:  true,
+	})
 }
 
 // NoRespURI 无响应数据的 Handler，自动绑定 URI 路径参数。
@@ -357,7 +397,7 @@ func NoRespQuery[Req any](handler func(c *Context, req *Req) error) HandlerFunc 
 //	// 路由注册
 //	engine.DELETE("/users/:id", server.NoRespURI(deleteUser))
 func NoRespURI[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		var req Req
 		if err := c.BindURI(&req); err != nil {
 			return // c.BindURI 已自动返回 400 错误并中止请求
@@ -370,6 +410,11 @@ func NoRespURI[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 
 		c.Ok(nil)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		reqType:     typeOf[Req](),
+		bindingType: bindingTypeURI,
+		noResponse:  true,
+	})
 }
 
 // Simple 最简单的 Handler，无请求参数，无响应数据。
@@ -388,11 +433,16 @@ func NoRespURI[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 //	// 路由注册
 //	engine.GET("/ping", server.Simple(ping))
 func Simple(handler func(c *Context) error) HandlerFunc {
-	return func(c *Context) {
+	fn := func(c *Context) {
 		if err := handler(c); err != nil {
 			c.Fail(err)
 			return
 		}
 		c.Ok(nil)
 	}
+	return registerHandlerType(fn, &handlerTypeInfo{
+		noRequest:   true,
+		noResponse:  true,
+		bindingType: bindingTypeNone,
+	})
 }

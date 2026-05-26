@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -284,6 +285,39 @@ func TestSchemaOfConvertsNumericOneOfValues(t *testing.T) {
 	enum := schema.Properties["level"].Inline.Enum
 	if len(enum) != 3 || enum[0] != float64(1) || enum[1] != float64(2) || enum[2] != float64(3) {
 		t.Fatalf("level enum = %#v, want numeric values 1/2/3", enum)
+	}
+}
+
+func TestSchemaOfTypeGeneratesSchemaFromReflectType(t *testing.T) {
+	doc := New(Config{
+		Info: Info{Title: "API", Version: "1.0.0"},
+		TagResolvers: []TagResolver{
+			DefaultTagResolver(),
+			RuleTagResolver(RuleTagResolverConfig{TagName: "binding", Strict: true}),
+		},
+	})
+
+	ref, err := doc.SchemaOfType(reflect.TypeOf(schemaUser{}))
+	if err != nil {
+		t.Fatalf("SchemaOfType() error = %v", err)
+	}
+	if ref.Ref == "" {
+		t.Fatalf("SchemaOfType() = %#v, want component ref", ref)
+	}
+
+	schema := doc.Document().Components.Schemas["openapi_schemaUser"].Inline
+	if schema == nil {
+		t.Fatal("schema component missing")
+	}
+	if got, want := schema.Properties["name"].Inline.Description, "用户名"; got != want {
+		t.Fatalf("name description = %q, want %q", got, want)
+	}
+}
+
+func TestSchemaOfTypeRejectsNilBuilder(t *testing.T) {
+	var doc *Builder
+	if _, err := doc.SchemaOfType(reflect.TypeOf(schemaUser{})); err == nil {
+		t.Fatal("SchemaOfType() error = nil, want error")
 	}
 }
 

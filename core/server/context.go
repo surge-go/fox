@@ -29,6 +29,12 @@ func (c *Context) RawRequest() *http.Request {
 	return c.ctx.Request
 }
 
+// RawWriter 返回原始 http.ResponseWriter，用于需要直接操作响应的场景。
+// 注意：直接操作 ResponseWriter 可能绕过中间件和日志记录。
+func (c *Context) RawWriter() http.ResponseWriter {
+	return c.ctx.Writer
+}
+
 // WithContext 替换底层请求的标准 context.Context。
 //
 // 适用于 tracing、认证、超时控制等需要把派生 context 传递给后续 Handler

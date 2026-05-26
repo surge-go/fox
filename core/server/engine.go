@@ -37,6 +37,7 @@ type Engine struct {
 	cfg              *Config
 	mu               sync.Mutex
 	routes           []RouteInfo
+	docRoutes        map[*Route]struct{}
 	anonFuncCounters map[string]int
 }
 
@@ -94,6 +95,7 @@ func New(cfg *Config) (*Engine, error) {
 		engine:           engine,
 		server:           srv,
 		cfg:              &cfgCopy,
+		docRoutes:        make(map[*Route]struct{}),
 		anonFuncCounters: make(map[string]int),
 	}
 
@@ -168,43 +170,43 @@ func (e *Engine) Group(prefix string, middlewares ...HandlerFunc) *RouterGroup {
 }
 
 // GET 注册 GET 路由
-func (e *Engine) GET(path string, handler HandlerFunc) {
-	e.registerRoute(http.MethodGet, path, handler)
+func (e *Engine) GET(path string, handler HandlerFunc) *Route {
+	return e.registerRoute(http.MethodGet, path, handler)
 }
 
 // POST 注册 POST 路由
-func (e *Engine) POST(path string, handler HandlerFunc) {
-	e.registerRoute(http.MethodPost, path, handler)
+func (e *Engine) POST(path string, handler HandlerFunc) *Route {
+	return e.registerRoute(http.MethodPost, path, handler)
 }
 
 // PUT 注册 PUT 路由
-func (e *Engine) PUT(path string, handler HandlerFunc) {
-	e.registerRoute(http.MethodPut, path, handler)
+func (e *Engine) PUT(path string, handler HandlerFunc) *Route {
+	return e.registerRoute(http.MethodPut, path, handler)
 }
 
 // DELETE 注册 DELETE 路由
-func (e *Engine) DELETE(path string, handler HandlerFunc) {
-	e.registerRoute(http.MethodDelete, path, handler)
+func (e *Engine) DELETE(path string, handler HandlerFunc) *Route {
+	return e.registerRoute(http.MethodDelete, path, handler)
 }
 
 // PATCH 注册 PATCH 路由
-func (e *Engine) PATCH(path string, handler HandlerFunc) {
-	e.registerRoute(http.MethodPatch, path, handler)
+func (e *Engine) PATCH(path string, handler HandlerFunc) *Route {
+	return e.registerRoute(http.MethodPatch, path, handler)
 }
 
 // HEAD 注册 HEAD 路由
-func (e *Engine) HEAD(path string, handler HandlerFunc) {
-	e.registerRoute(http.MethodHead, path, handler)
+func (e *Engine) HEAD(path string, handler HandlerFunc) *Route {
+	return e.registerRoute(http.MethodHead, path, handler)
 }
 
 // OPTIONS 注册 OPTIONS 路由
-func (e *Engine) OPTIONS(path string, handler HandlerFunc) {
-	e.registerRoute(http.MethodOptions, path, handler)
+func (e *Engine) OPTIONS(path string, handler HandlerFunc) *Route {
+	return e.registerRoute(http.MethodOptions, path, handler)
 }
 
 // Any 注册所有 HTTP 方法的路由
-func (e *Engine) Any(path string, handler HandlerFunc) {
-	e.registerAny(path, handler)
+func (e *Engine) Any(path string, handler HandlerFunc) []*Route {
+	return e.registerAny(path, handler)
 }
 
 // Static 注册静态文件服务，将 URL 路径映射到本地文件系统目录
@@ -227,17 +229,29 @@ func (e *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	e.engine.ServeHTTP(w, req)
 }
 
-func (e *Engine) registerRoute(method, path string, handler HandlerFunc) {
+func (e *Engine) registerRoute(method, path string, handler HandlerFunc) *Route {
 	e.registerHandlers(method, path, HandlersChain{handler})
+	route := newRoute(e, method, path, handler, nil)
+	route.markForDocIfDocumentable()
+	return route
 }
 
-func (e *Engine) registerAny(path string, handler HandlerFunc) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+func (e *Engine) registerAny(path string, handler HandlerFunc) []*Route {
+	routes := make([]*Route, 0, len(anyMethods))
+	func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		for _, method := range anyMethods {
+			e.registerHandlersLocked(method, path, HandlersChain{handler})
+			route := newRoute(e, method, path, handler, nil)
+			routes = append(routes, route)
+		}
+	}()
 
-	for _, method := range anyMethods {
-		e.registerHandlersLocked(method, path, HandlersChain{handler})
+	for _, route := range routes {
+		route.markForDocIfDocumentable()
 	}
+	return routes
 }
 
 func (e *Engine) registerHandlers(method, path string, handlers HandlersChain) {

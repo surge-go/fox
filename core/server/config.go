@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/surge-go/fox/pkg/openapi"
 )
 
 // Mode 表示 Gin 运行模式。
@@ -49,6 +51,26 @@ type Config struct {
 	// UseH2C 是否允许明文 HTTP/2 (h2c) 升级。
 	// 开启后服务端在不启用 TLS 的情况下也可接受 HTTP/2 连接，适用于内部服务间通信。
 	UseH2C bool `json:"use_h2c" yaml:"use_h2c" mapstructure:"use_h2c"`
+	// OpenAPI 为空时不启用自动文档收集。
+	OpenAPI *OpenAPIConfig `json:"openapi,omitempty" yaml:"openapi,omitempty" mapstructure:"openapi"`
+}
+
+// OpenAPIConfig 表示 server 自动生成 OpenAPI 文档的配置。
+type OpenAPIConfig struct {
+	Info         openapi.Info
+	Servers      []openapi.Server
+	Tags         []openapi.Tag
+	TagResolvers []openapi.TagResolver
+	// ResponseDescriptions 配置默认响应描述，支持国际化。
+	// 如果为空，使用英文默认值。
+	ResponseDescriptions ResponseDescriptions
+}
+
+// ResponseDescriptions 定义 OpenAPI 文档中默认响应的描述文本。
+type ResponseDescriptions struct {
+	Success             string // 200 响应描述，默认 "Success"
+	BadRequest          string // 400 响应描述，默认 "Bad Request"
+	InternalServerError string // 500 响应描述，默认 "Internal Server Error"
 }
 
 // Validate 校验 HTTP 服务器配置是否满足启动的基本要求。

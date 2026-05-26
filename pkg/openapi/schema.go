@@ -113,6 +113,13 @@ func SchemaOf[T any](b *Builder) (SchemaRef, error) {
 	return b.schemaOfType(t)
 }
 
+func (b *Builder) SchemaOfType(t reflect.Type) (SchemaRef, error) {
+	if b == nil {
+		return SchemaRef{}, errors.New("openapi: builder is nil")
+	}
+	return b.schemaOfType(t)
+}
+
 func (b *Builder) schemaOfType(t reflect.Type) (SchemaRef, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
