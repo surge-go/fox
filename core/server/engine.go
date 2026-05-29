@@ -284,3 +284,26 @@ func (e *Engine) routeSnapshot() []RouteInfo {
 	copy(snapshot, e.routes)
 	return snapshot
 }
+
+// HideFromRouteList 在启动路由表中隐藏当前路由。
+//
+// 该方法只影响 [Fox-debug] 路由打印，不影响真实路由注册、请求处理或 OpenAPI 文档。
+// 适合隐藏 OpenAPI UI 代理、探针内部端点等框架辅助路由。
+func (r *Route) HideFromRouteList() *Route {
+	if r == nil || r.engine == nil {
+		return r
+	}
+	r.engine.hideFromRouteList(r.method, r.path)
+	return r
+}
+
+func (e *Engine) hideFromRouteList(method, path string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	for i := range e.routes {
+		if e.routes[i].Method == method && e.routes[i].Path == path {
+			e.routes[i].Hidden = true
+		}
+	}
+}

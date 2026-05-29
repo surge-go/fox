@@ -13,6 +13,7 @@ type RouteInfo struct {
 	Method  string
 	Path    string
 	Handler string
+	Hidden  bool
 }
 
 // methodColor 返回 HTTP 方法对应的 ANSI 颜色代码
@@ -55,6 +56,9 @@ func (e *Engine) printRoutes() {
 
 	fmt.Println()
 	for _, r := range routes {
+		if r.Hidden {
+			continue
+		}
 		color := methodColor(r.Method)
 		fmt.Printf("%s[Fox-debug]%s %s%-7s%s %-30s --> %s\n",
 			colorCyan, colorReset, color, r.Method, colorReset, r.Path, r.Handler)

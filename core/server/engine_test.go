@@ -285,6 +285,36 @@ func TestAnyRecordsEachHTTPMethod(t *testing.T) {
 	}
 }
 
+func TestRouteHideFromRouteList(t *testing.T) {
+	engine, err := New(&Config{
+		Mode: ModeTest,
+		Addr: ":8080",
+	})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	engine.POST("/internal/proxy", func(c *Context) {
+		c.String(http.StatusOK, "ok")
+	}).HideFromRouteList()
+
+	routes := engine.routeSnapshot()
+	if got, want := len(routes), 1; got != want {
+		t.Fatalf("route records = %d, want %d", got, want)
+	}
+	if !routes[0].Hidden {
+		t.Fatal("route Hidden = false, want true")
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/proxy", nil)
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("hidden route status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
 func TestGetHandlerNameHandlesNilHandler(t *testing.T) {
 	engine, err := New(&Config{
 		Mode: ModeTest,
