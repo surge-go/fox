@@ -14,6 +14,27 @@ Fox 是一款面向快速开发的 Go Web 单体框架，基于 Gin 构建，提
 - **OpenAPI 文档** — 从路由自动生成 OpenAPI 3.0.3 文档，内置 UI 和请求调试代理
 - **统一错误模型** — 业务错误码 + HTTP 状态码 + 错误链，兼容 `errors.Is`/`errors.As`
 
+## 安装
+
+```bash
+go get github.com/surge-go/fox@v0.0.1
+```
+
+按需引入子模块：
+
+```bash
+# 仅使用 HTTP 服务器
+go get github.com/surge-go/fox/core/server
+
+# 仅使用数据库客户端
+go get github.com/surge-go/fox/core/database
+
+# 仅使用文件工具包
+go get github.com/surge-go/fox/pkg/file
+```
+
+要求 Go 1.21+。
+
 ## 快速开始
 
 ```go
