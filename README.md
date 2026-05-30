@@ -20,20 +20,16 @@ Fox 是一款面向快速开发的 Go Web 单体框架，基于 Gin 构建，提
 go get github.com/surge-go/fox@v0.0.1
 ```
 
-按需引入子模块：
+要求 Go 1.21+。在代码中按需导入包即可：
 
-```bash
-# 仅使用 HTTP 服务器
-go get github.com/surge-go/fox/core/server
-
-# 仅使用数据库客户端
-go get github.com/surge-go/fox/core/database
-
-# 仅使用文件工具包
-go get github.com/surge-go/fox/pkg/file
+```go
+import (
+    "github.com/surge-go/fox/bootstrap"   // 应用门面
+    "github.com/surge-go/fox/core/server"  // HTTP 服务器
+    "github.com/surge-go/fox/core/database" // 数据库
+    "github.com/surge-go/fox/pkg/file"     // 文件工具
+)
 ```
-
-要求 Go 1.21+。
 
 ## 快速开始
 
