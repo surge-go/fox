@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	foxerrors "github.com/surge-go/fox/core/errors"
+	"github.com/surge-go/fox/pkg/openapi"
 )
 
 func TestNewDefaultsModeAndNormalizesBarePort(t *testing.T) {
@@ -312,6 +313,37 @@ func TestRouteHideFromRouteList(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("hidden route status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestPrintRoutesIncludesOpenAPIURLsWhenConfigured(t *testing.T) {
+	engine, err := New(&Config{
+		Mode: ModeTest,
+		Addr: ":8080",
+		OpenAPI: &OpenAPIConfig{
+			Info: openapi.Info{Title: "API", Version: "1.0.0"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	engine.GET("/ping", func(c *Context) {
+		c.String(http.StatusOK, "pong")
+	})
+
+	output := captureStdout(t, func() {
+		engine.printRoutes()
+	})
+
+	if !strings.Contains(output, "/ ____/___") || !strings.Contains(output, "Fox Web 框架") || !strings.Contains(output, "运行模式") || !strings.Contains(output, "test") || !strings.Contains(output, "监听地址") || !strings.Contains(output, "http://localhost:8080") {
+		t.Fatalf("expected startup banner in route output, got %q", output)
+	}
+	if !strings.Contains(output, "OpenAPI UI:") || !strings.Contains(output, "http://localhost:8080/docs") {
+		t.Fatalf("expected OpenAPI UI URL in route output, got %q", output)
+	}
+	if !strings.Contains(output, "OpenAPI JSON:") || !strings.Contains(output, "http://localhost:8080/openapi.json") {
+		t.Fatalf("expected OpenAPI JSON URL in route output, got %q", output)
 	}
 }
 

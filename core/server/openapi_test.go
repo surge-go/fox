@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/surge-go/fox/pkg/openapi"
@@ -168,6 +170,63 @@ func TestOpenAPIDocumentSkipsPlainHandlers(t *testing.T) {
 	doc := engine.OpenAPIDocument()
 	if _, ok := doc.Paths["/manual"]; ok {
 		t.Fatal("plain handler should not be included in OpenAPI document")
+	}
+}
+
+func TestOpenAPIRoutesAreMountedWhenConfigured(t *testing.T) {
+	engine, err := New(&Config{
+		Addr: ":8080",
+		Mode: ModeTest,
+		OpenAPI: &OpenAPIConfig{
+			Info: openapi.Info{Title: "Mounted API", Version: "1.0.0"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	engine.GET("/ping", NoReq(func(c *Context) (*struct {
+		OK bool `json:"ok"`
+	}, error) {
+		return &struct {
+			OK bool `json:"ok"`
+		}{OK: true}, nil
+	})).Summary("Ping")
+
+	specReq := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	specResp := httptest.NewRecorder()
+	engine.ServeHTTP(specResp, specReq)
+	if specResp.Code != http.StatusOK {
+		t.Fatalf("GET /openapi.json status = %d, want 200", specResp.Code)
+	}
+
+	var doc openapi.Document
+	if err := json.Unmarshal(specResp.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("decode openapi response: %v", err)
+	}
+	if doc.OpenAPI != "3.0.3" {
+		t.Fatalf("openapi version = %q, want 3.0.3", doc.OpenAPI)
+	}
+	if doc.Paths["/ping"].Get == nil {
+		t.Fatal("GET /ping missing from generated document")
+	}
+
+	uiReq := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	uiResp := httptest.NewRecorder()
+	engine.ServeHTTP(uiResp, uiReq)
+	if uiResp.Code != http.StatusOK {
+		t.Fatalf("GET /docs status = %d, want 200", uiResp.Code)
+	}
+	if body := uiResp.Body.String(); !strings.Contains(body, `"specUrl":"/openapi.json"`) || !strings.Contains(body, "Mounted API") {
+		t.Fatalf("docs body missing generated UI config: %s", body)
+	}
+
+	for _, route := range engine.routeSnapshot() {
+		if strings.HasPrefix(route.Path, "/openapi") || strings.HasPrefix(route.Path, "/docs") {
+			if !route.Hidden {
+				t.Fatalf("framework route %s %s is visible in route list", route.Method, route.Path)
+			}
+		}
 	}
 }
 

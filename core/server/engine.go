@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	openapiui "github.com/surge-go/fox/pkg/openapi/ui"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -104,8 +106,46 @@ func New(cfg *Config) (*Engine, error) {
 	if cfgCopy.loggerEnabled() {
 		e.Use(loggerMiddleware())
 	}
+	if cfgCopy.OpenAPI != nil {
+		e.mountOpenAPI()
+	}
 
 	return e, nil
+}
+
+func (e *Engine) mountOpenAPI() {
+	e.GET("/openapi.json", func(c *Context) {
+		c.JSON(http.StatusOK, e.OpenAPIDocument())
+	}).HideFromRouteList()
+
+	uiHandler := openapiui.Handler(openapiui.Config{
+		Title:   e.openapiTitle(),
+		SpecURL: "/openapi.json",
+	})
+
+	e.GET("/docs", e.openAPIUIHandler(uiHandler)).HideFromRouteList()
+	e.GET("/docs/*filepath", e.openAPIUIHandler(uiHandler)).HideFromRouteList()
+	e.POST("/docs/*filepath", e.openAPIUIHandler(uiHandler)).HideFromRouteList()
+}
+
+func (e *Engine) openapiTitle() string {
+	if e == nil || e.cfg == nil || e.cfg.OpenAPI == nil || e.cfg.OpenAPI.Info.Title == "" {
+		return ""
+	}
+	return e.cfg.OpenAPI.Info.Title
+}
+
+func (e *Engine) openAPIUIHandler(handler http.Handler) HandlerFunc {
+	return func(c *Context) {
+		req := c.RawRequest()
+		originalPath := req.URL.Path
+		req.URL.Path = strings.TrimPrefix(originalPath, "/docs")
+		if req.URL.Path == "" {
+			req.URL.Path = "/"
+		}
+		handler.ServeHTTP(c.RawWriter(), req)
+		req.URL.Path = originalPath
+	}
 }
 
 // Run 启动 HTTP 服务器，阻塞直到收到系统信号（SIGINT/SIGTERM）或发生错误。

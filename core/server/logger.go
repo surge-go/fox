@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"reflect"
 	"runtime"
@@ -54,7 +55,7 @@ func (e *Engine) printRoutes() {
 		return
 	}
 
-	fmt.Println()
+	e.printBanner()
 	for _, r := range routes {
 		if r.Hidden {
 			continue
@@ -64,14 +65,80 @@ func (e *Engine) printRoutes() {
 			colorCyan, colorReset, color, r.Method, colorReset, r.Path, r.Handler)
 	}
 	fmt.Println()
+	e.printOpenAPIInfo()
+}
 
-	// 打印启动信息
-	fmt.Printf("%s[Fox]%s Running in %s%q%s mode.\n",
-		colorCyan, colorReset, colorMagenta, e.mode, colorReset)
-	fmt.Printf("%s[Fox]%s Go version: %s | OS: %s/%s\n",
-		colorCyan, colorReset, runtime.Version(), runtime.GOOS, runtime.GOARCH)
-	fmt.Printf("%s[Fox]%s Listening on %s%s%s\n\n",
-		colorCyan, colorReset, colorGreen, e.cfg.Addr, colorReset)
+func (e *Engine) printBanner() {
+	runtimeText := runtime.Version() + " " + runtime.GOOS + "/" + runtime.GOARCH
+	fmt.Printf(`
+%s        ______
+%s       / ____/___  _  __
+%s      / /_  / __ \| |/_/
+%s     / __/ / /_/ />  <
+%s    /_/    \____/_/|_|
+
+%s    Fox Web 框架%s
+%s    快速构建 · 可观测 · 面向生产的 Go 服务%s
+
+%s    ------------------------------------------------------------
+%s    运行模式  %s%s%s
+%s    监听地址  %s%s%s
+%s    运行环境  %s%s%s
+%s    ------------------------------------------------------------
+%s
+`,
+		colorCyan,
+		colorCyan,
+		colorCyan,
+		colorCyan,
+		colorCyan,
+		colorGreen,
+		colorReset,
+		colorWhite,
+		colorReset,
+		colorCyan,
+		colorWhite,
+		colorMagenta,
+		e.mode,
+		colorReset,
+		colorWhite,
+		colorGreen,
+		e.publicBaseURL(),
+		colorReset,
+		colorWhite,
+		colorGreen,
+		runtimeText,
+		colorReset,
+		colorCyan,
+		colorReset,
+	)
+}
+
+func (e *Engine) printOpenAPIInfo() {
+	if e == nil || e.cfg == nil || e.cfg.OpenAPI == nil {
+		return
+	}
+
+	baseURL := e.publicBaseURL()
+	fmt.Printf("%s[Fox]%s OpenAPI UI:   %s%s/docs%s\n",
+		colorCyan, colorReset, colorGreen, baseURL, colorReset)
+	fmt.Printf("%s[Fox]%s OpenAPI JSON: %s%s/openapi.json%s\n\n",
+		colorCyan, colorReset, colorGreen, baseURL, colorReset)
+}
+
+func (e *Engine) publicBaseURL() string {
+	addr := e.cfg.Addr
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		if strings.HasPrefix(addr, ":") {
+			return "http://localhost" + addr
+		}
+		return "http://" + addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "localhost"
+	}
+	return "http://" + net.JoinHostPort(host, port)
 }
 
 // getHandlerName 从 HandlerFunc 获取函数名

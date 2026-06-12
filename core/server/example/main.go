@@ -2,14 +2,12 @@ package main
 
 import (
 	"log"
-	"net/http"
 	"time"
 
 	"github.com/surge-go/fox/core/errors"
 	"github.com/surge-go/fox/core/server"
 	"github.com/surge-go/fox/core/server/middleware"
 	"github.com/surge-go/fox/pkg/openapi"
-	"github.com/surge-go/fox/pkg/openapi/ui"
 )
 
 // ===== 数据模型 =====
@@ -259,43 +257,7 @@ func main() {
 		Burst:             200,
 	}))
 
-	// 4. 注册 OpenAPI 文档和 UI
-	srv.GET("/openapi.json", func(c *server.Context) {
-		doc := srv.OpenAPIDocument()
-		c.JSON(http.StatusOK, doc)
-	})
-
-	// 挂载 OpenAPI UI（访问 http://localhost:8080/docs）
-	uiHandler := ui.Handler(ui.Config{
-		Title:      "Fox Server Example API",
-		SpecURL:    "/openapi.json",
-		ProxyHosts: []string{"localhost", "127.0.0.1"},
-	})
-
-	// 使用通配符路由，让 UI handler 处理所有 /docs 下的请求
-	srv.GET("/docs/*filepath", func(c *server.Context) {
-		// 去掉 /docs 前缀，让 UI handler 看到正确的路径
-		req := c.RawRequest()
-		originalPath := req.URL.Path
-		req.URL.Path = originalPath[5:] // 去掉 "/docs"
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-		uiHandler.ServeHTTP(c.RawWriter(), req)
-	})
-
-	// 代理端点需要支持 POST
-	srv.POST("/docs/*filepath", func(c *server.Context) {
-		req := c.RawRequest()
-		originalPath := req.URL.Path
-		req.URL.Path = originalPath[5:] // 去掉 "/docs"
-		if req.URL.Path == "" {
-			req.URL.Path = "/"
-		}
-		uiHandler.ServeHTTP(c.RawWriter(), req)
-	})
-
-	// 5. 注册健康检查路由（无需认证）
+	// 4. 注册健康检查路由（无需认证）
 	srv.GET("/health", server.NoReq(healthCheck)).
 		Summary("健康检查").
 		Description("返回服务健康状态和版本信息").
@@ -306,7 +268,7 @@ func main() {
 		Description("快速响应检查").
 		Tags("健康检查")
 
-	// 6. 注册 API 路由组
+	// 5. 注册 API 路由组
 	api := srv.Group("/api/v1")
 
 	// API 路由组限流：每秒 50 个请求
@@ -393,10 +355,6 @@ func main() {
 	log.Println("Fox Server Example")
 	log.Println("========================================")
 	log.Println("Server starting on http://localhost:8080")
-	log.Println("")
-	log.Println("📚 OpenAPI Documentation:")
-	log.Println("  UI:   http://localhost:8080/docs")
-	log.Println("  JSON: http://localhost:8080/openapi.json")
 	log.Println("")
 	log.Println("Available endpoints:")
 	log.Println("  GET    /health                  - Health check")
