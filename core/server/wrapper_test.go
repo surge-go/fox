@@ -41,6 +41,14 @@ type DeleteUserRequest struct {
 	ID int64 `uri:"id" binding:"required"`
 }
 
+func namedHealthCheck(_ *Context) (*struct {
+	Status string `json:"status"`
+}, error) {
+	return &struct {
+		Status string `json:"status"`
+	}{Status: "ok"}, nil
+}
+
 // ===== BindJSON 测试 =====
 
 func TestBindJSON_Success(t *testing.T) {
@@ -85,6 +93,23 @@ func TestBindJSON_Success(t *testing.T) {
 
 	if !strings.Contains(w.Body.String(), `"id":1`) {
 		t.Errorf("expected response to contain user data, got %s", w.Body.String())
+	}
+}
+
+func TestWrapperRouteDisplaysBusinessHandlerName(t *testing.T) {
+	engine, err := New(&Config{Addr: ":8080", Mode: ModeTest})
+	if err != nil {
+		t.Fatalf("failed to create engine: %v", err)
+	}
+
+	engine.GET("/health", NoReq(namedHealthCheck))
+
+	routes := engine.routeSnapshot()
+	if got, want := len(routes), 1; got != want {
+		t.Fatalf("route records = %d, want %d", got, want)
+	}
+	if routes[0].Handler != "server.namedHealthCheck" {
+		t.Fatalf("handler name = %q, want %q", routes[0].Handler, "server.namedHealthCheck")
 	}
 }
 

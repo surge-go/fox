@@ -29,6 +29,7 @@ type handlerTypeInfo struct {
 	reqType     reflect.Type
 	respType    reflect.Type
 	bindingType string
+	handlerName string
 	noRequest   bool
 	noResponse  bool
 }

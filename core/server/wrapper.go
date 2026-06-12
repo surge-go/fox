@@ -72,6 +72,7 @@ func BindJSON[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 		reqType:     typeOf[Req](),
 		respType:    typeOf[Resp](),
 		bindingType: bindingTypeJSON,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -125,6 +126,7 @@ func BindQuery[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 		reqType:     typeOf[Req](),
 		respType:    typeOf[Resp](),
 		bindingType: bindingTypeQuery,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -176,6 +178,7 @@ func BindURI[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 		reqType:     typeOf[Req](),
 		respType:    typeOf[Resp](),
 		bindingType: bindingTypeURI,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -220,6 +223,7 @@ func Bind[Req, Resp any](handler BizHandler[Req, Resp]) HandlerFunc {
 		reqType:     typeOf[Req](),
 		respType:    typeOf[Resp](),
 		bindingType: bindingTypeAuto,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -256,6 +260,7 @@ func NoReq[Resp any](handler func(c *Context) (*Resp, error)) HandlerFunc {
 		respType:    typeOf[Resp](),
 		noRequest:   true,
 		bindingType: bindingTypeNone,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -295,6 +300,7 @@ func NoResp[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 		reqType:     typeOf[Req](),
 		bindingType: bindingTypeAuto,
 		noResponse:  true,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -336,6 +342,7 @@ func NoRespJSON[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 		reqType:     typeOf[Req](),
 		bindingType: bindingTypeJSON,
 		noResponse:  true,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -375,6 +382,7 @@ func NoRespQuery[Req any](handler func(c *Context, req *Req) error) HandlerFunc 
 		reqType:     typeOf[Req](),
 		bindingType: bindingTypeQuery,
 		noResponse:  true,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -414,6 +422,7 @@ func NoRespURI[Req any](handler func(c *Context, req *Req) error) HandlerFunc {
 		reqType:     typeOf[Req](),
 		bindingType: bindingTypeURI,
 		noResponse:  true,
+		handlerName: displayFunctionName(handler),
 	})
 }
 
@@ -444,5 +453,6 @@ func Simple(handler func(c *Context) error) HandlerFunc {
 		noRequest:   true,
 		noResponse:  true,
 		bindingType: bindingTypeNone,
+		handlerName: displayFunctionName(handler),
 	})
 }

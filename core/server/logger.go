@@ -146,21 +146,50 @@ func (e *Engine) getHandlerName(h HandlerFunc) string {
 	if h == nil {
 		return "<nil>"
 	}
+	if info := extractTypeInfoFromHandler(h); info != nil && info.handlerName != "" {
+		return info.handlerName
+	}
 
-	fn := runtime.FuncForPC(reflect.ValueOf(h).Pointer())
-	if fn == nil {
+	name := functionName(h)
+	if name == "" {
 		return "<unknown>"
 	}
-	name := fn.Name()
+
+	return e.displayHandlerName(name)
+}
+
+func functionName(fn any) string {
+	if fn == nil {
+		return ""
+	}
+	value := reflect.ValueOf(fn)
+	if value.Kind() != reflect.Func {
+		return ""
+	}
+	runtimeFn := runtime.FuncForPC(value.Pointer())
+	if runtimeFn == nil {
+		return ""
+	}
+	return runtimeFn.Name()
+}
+
+func (e *Engine) displayHandlerName(name string) string {
+	if name == "" {
+		return "<unknown>"
+	}
 
 	// 去掉包路径，保留包名.函数名
 	if idx := strings.LastIndex(name, "/"); idx != -1 {
 		name = name[idx+1:]
 	}
 
+	// 泛型函数名可能带有实例化后缀，只保留对用户有意义的函数名部分。
+	if idx := strings.Index(name, "["); idx != -1 {
+		name = name[:idx]
+	}
+
 	// 匿名函数按包名分组重新编号：main.func1
 	if strings.Contains(name, ".func") {
-		// 提取包名（第一个点之前的部分）
 		parts := strings.Split(name, ".")
 		if len(parts) >= 1 {
 			pkgName := parts[0]
@@ -169,5 +198,20 @@ func (e *Engine) getHandlerName(h HandlerFunc) string {
 		}
 	}
 
+	return name
+}
+
+func displayFunctionName(fn any) string {
+	name := functionName(fn)
+	if name == "" {
+		return ""
+	}
+
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
+	}
+	if idx := strings.Index(name, "["); idx != -1 {
+		name = name[:idx]
+	}
 	return name
 }
