@@ -17,7 +17,7 @@ Fox 是一款面向快速开发的 Go Web 单体框架，基于 Gin 构建，提
 ## 安装
 
 ```bash
-go get github.com/surge-go/fox@v0.0.2
+go get github.com/surge-go/fox@v0.0.3
 ```
 
 要求 Go 1.21+。在代码中按需导入包即可：
