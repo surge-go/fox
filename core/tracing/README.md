@@ -9,7 +9,7 @@
 - 托管 `TracerProvider` 生命周期，提供 `Shutdown`。
 - 提供 `GlobalTracerProvider` 便于框架内部或应用层读取当前 provider。
 
-该包不负责自动注册 HTTP tracing 中间件，也不直接绑定 `core/server` 路由。
+该包不负责自动注册 HTTP tracing 中间件，也不直接绑定具体 HTTP 路由实现。
 
 ## 快速开始
 
@@ -230,4 +230,3 @@ if err := provider.Shutdown(ctx); err != nil {
 | `Service` | `nil` 时使用 OpenTelemetry 默认 resource |
 
 如果配置了 `Service`，`Service.Name` 必填。
-
