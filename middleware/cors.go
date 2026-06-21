@@ -82,7 +82,7 @@ func CORSWithConfig(cfg CORSConfig) fox.HandlerFunc {
 			}
 		}
 
-		if c.RawRequest().Method == http.MethodOptions {
+		if isCORSPreflight(c) {
 			c.SetHeader("Access-Control-Allow-Methods", allowMethods)
 			c.SetHeader("Access-Control-Allow-Headers", allowHeaders)
 			if cfg.AllowCredentials {
@@ -101,6 +101,12 @@ func CORSWithConfig(cfg CORSConfig) fox.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+func isCORSPreflight(c *fox.Context) bool {
+	return c.RawRequest().Method == http.MethodOptions &&
+		c.GetHeader("Origin") != "" &&
+		c.GetHeader("Access-Control-Request-Method") != ""
 }
 
 func normalizeCORSConfig(cfg CORSConfig) CORSConfig {

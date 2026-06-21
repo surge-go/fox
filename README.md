@@ -183,7 +183,7 @@ app.Use(middleware.CORS())
 ```go
 auth := func(c *fox.Context) {
 	if c.GetHeader("Authorization") == "" {
-		c.Fail(c.Errors().ErrUnauthorized())
+		c.AbortWithStatusJSON(http.StatusUnauthorized, fox.NewResponse(http.StatusUnauthorized, nil, "unauthorized", c.TraceID()))
 		return
 	}
 	c.Next()
@@ -338,7 +338,7 @@ fox/
 ├── recovery.go        # New() 内置 panic recovery
 ├── router.go          # RouteGroup 和路径拼接
 ├── types.go           # HandlerFunc、Response、Logger、默认错误工厂
-├── middleware/        # 可选中间件：Logger、CORS、Recovery
+├── middleware/        # 可选中间件：Logger、CORS、Recovery、RequestID、Tracing、Timeout、BodyLimit、RateLimit、Gzip
 ├── example/           # Fox HTTP 示例
 ├── core/              # 独立核心模块
 └── pkg/               # 通用工具包

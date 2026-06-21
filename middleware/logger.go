@@ -19,6 +19,12 @@ const (
 	logColorWhite   = "\033[37m"
 )
 
+type defaultLogger struct{}
+
+func (defaultLogger) Printf(format string, args ...any) {
+	fmt.Printf(format+"\n", args...)
+}
+
 // LogFields 表示一次请求日志可用的字段。
 type LogFields struct {
 	Time      time.Time
@@ -29,6 +35,7 @@ type LogFields struct {
 	ClientIP  string
 	Latency   time.Duration
 	UserAgent string
+	RequestID string
 	TraceID   string
 }
 
@@ -87,6 +94,7 @@ func LoggerWithConfig(cfg LoggerConfig) fox.HandlerFunc {
 			ClientIP:  c.ClientIP(),
 			Latency:   time.Since(start),
 			UserAgent: req.UserAgent(),
+			RequestID: c.RequestID(),
 			TraceID:   c.TraceID(),
 		}
 		if fields.Status == 0 {
@@ -113,7 +121,14 @@ func DefaultLogFormatter(fields LogFields) string {
 		target,
 	)
 	if fields.TraceID != "" {
+		if fields.RequestID != "" && fields.RequestID != fields.TraceID {
+			line += " | " + colorize(logColorWhite, fields.RequestID)
+			line += " | " + colorize(logColorWhite, fields.TraceID)
+			return line
+		}
 		line += " | " + colorize(logColorWhite, fields.TraceID)
+	} else if fields.RequestID != "" {
+		line += " | " + colorize(logColorWhite, fields.RequestID)
 	}
 	return line
 }

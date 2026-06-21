@@ -33,16 +33,12 @@ func (customErrors) ErrServer() *coreerrors.Error {
 	return coreerrors.NewWithStatus(20001, http.StatusInternalServerError, "custom internal error")
 }
 
-func (customErrors) ErrBadRequest() *coreerrors.Error {
-	return coreerrors.NewWithStatus(10001, http.StatusBadRequest, "custom bad request")
-}
-
 func (customErrors) ErrInvalidParams() *coreerrors.Error {
 	return coreerrors.NewWithStatus(10003, http.StatusBadRequest, "custom invalid params")
 }
 
-func (customErrors) ErrUnauthorized() *coreerrors.Error {
-	return coreerrors.NewWithStatus(10002, http.StatusUnauthorized, "custom unauthorized")
+func (customErrors) ErrTooManyRequests() *coreerrors.Error {
+	return coreerrors.NewWithStatus(10004, http.StatusTooManyRequests, "custom too many requests")
 }
 
 func TestNewAppliesDefaultConfig(t *testing.T) {
@@ -177,7 +173,7 @@ func TestEngineUsesCustomErrorFactoryForPanicRecovery(t *testing.T) {
 func TestMiddlewareCanUseContextErrors(t *testing.T) {
 	e := New(&Config{Addr: ":0", Mode: ModeTest, PrintRoutes: boolPtr(false)}, &customErrors{})
 	e.Use(func(c *Context) {
-		c.Fail(c.Errors().ErrUnauthorized())
+		c.Fail(c.Errors().ErrTooManyRequests())
 	})
 	e.GET("/private", func(c *Context) {
 		c.Ok("private")
@@ -187,12 +183,12 @@ func TestMiddlewareCanUseContextErrors(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTooManyRequests)
 	}
-	if body := rec.Body.String(); !strings.Contains(body, `"code":10002`) ||
-		!strings.Contains(body, `"message":"custom unauthorized"`) {
-		t.Fatalf("body = %q, want custom unauthorized response", body)
+	if body := rec.Body.String(); !strings.Contains(body, `"code":10004`) ||
+		!strings.Contains(body, `"message":"custom too many requests"`) {
+		t.Fatalf("body = %q, want custom too many requests response", body)
 	}
 }
 

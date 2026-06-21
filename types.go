@@ -8,6 +8,8 @@ import (
 )
 
 const (
+	// RequestIDKey 是 Context 中保存 request id 的键。
+	RequestIDKey = "request_id"
 	// TraceIDKey 是 Context 中保存 trace id 的键。
 	TraceIDKey = "trace_id"
 	// SpanIDKey 是 Context 中保存 span id 的键。
@@ -103,34 +105,14 @@ func (e *Err) ErrServer() *errors.Error {
 	return errors.NewWithStatus(http.StatusInternalServerError, http.StatusInternalServerError, "internal server error")
 }
 
-// ErrBadRequest 返回错误请求，通常对应 HTTP 400。
-func (e *Err) ErrBadRequest() *errors.Error {
-	return errors.NewWithStatus(http.StatusBadRequest, http.StatusBadRequest, "bad request")
-}
-
-// ErrUnauthorized 返回未认证错误，通常对应 HTTP 401。
-func (e *Err) ErrUnauthorized() *errors.Error {
-	return errors.NewWithStatus(http.StatusUnauthorized, http.StatusUnauthorized, "unauthorized")
-}
-
-// ErrForbidden 返回无权限访问错误，通常对应 HTTP 403。
-func (e *Err) ErrForbidden() *errors.Error {
-	return errors.NewWithStatus(http.StatusForbidden, http.StatusForbidden, "forbidden")
-}
-
-// ErrNotFound 返回资源不存在错误，通常对应 HTTP 404。
-func (e *Err) ErrNotFound() *errors.Error {
-	return errors.NewWithStatus(http.StatusNotFound, http.StatusNotFound, "not found")
-}
-
-// ErrConflict 返回资源冲突错误，通常对应 HTTP 409。
-func (e *Err) ErrConflict() *errors.Error {
-	return errors.NewWithStatus(http.StatusConflict, http.StatusConflict, "conflict")
-}
-
 // ErrTooManyRequests 返回请求过于频繁错误，通常对应 HTTP 429。
 func (e *Err) ErrTooManyRequests() *errors.Error {
 	return errors.NewWithStatus(http.StatusTooManyRequests, http.StatusTooManyRequests, "too many requests")
+}
+
+// ErrPayloadTooLarge 返回请求体过大错误，通常对应 HTTP 413。
+func (e *Err) ErrPayloadTooLarge() *errors.Error {
+	return errors.NewWithStatus(http.StatusRequestEntityTooLarge, http.StatusRequestEntityTooLarge, "payload too large")
 }
 
 // ErrInvalidParams 返回参数无效错误，通常对应 HTTP 400。
@@ -146,9 +128,4 @@ func (e *Err) ErrRequestTimeout() *errors.Error {
 // ErrServiceUnavailable 返回服务暂不可用错误，通常对应 HTTP 503。
 func (e *Err) ErrServiceUnavailable() *errors.Error {
 	return errors.NewWithStatus(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "service unavailable")
-}
-
-// ErrGatewayTimeout 返回网关或下游服务超时错误，通常对应 HTTP 504。
-func (e *Err) ErrGatewayTimeout() *errors.Error {
-	return errors.NewWithStatus(http.StatusGatewayTimeout, http.StatusGatewayTimeout, "gateway timeout")
 }

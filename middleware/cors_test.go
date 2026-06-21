@@ -76,6 +76,25 @@ func TestCORSPreflightRequest(t *testing.T) {
 	}
 }
 
+func TestCORSDoesNotInterceptPlainOptionsRequest(t *testing.T) {
+	e := fox.New(&fox.Config{Addr: ":0", Mode: fox.ModeTest, PrintRoutes: boolPtr(false)})
+	e.Use(CORS())
+	e.OPTIONS("/custom", func(c *fox.Context) {
+		c.String(http.StatusAccepted, "custom")
+	})
+
+	req := httptest.NewRequest(http.MethodOptions, "/custom", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusAccepted)
+	}
+	if body := rec.Body.String(); body != "custom" {
+		t.Fatalf("body = %q, want custom", body)
+	}
+}
+
 func TestCORSActualRequest(t *testing.T) {
 	e := newCORSTestEngine(CORSWithConfig(CORSConfig{
 		AllowOrigins:     []string{"https://example.com"},

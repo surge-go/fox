@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/surge-go/fox"
+	coreerrors "github.com/surge-go/fox/core/errors"
 )
 
 func TestRecoveryReturnsJSON500(t *testing.T) {
@@ -62,4 +63,36 @@ func TestRecoveryDoesNotRewriteWrittenResponse(t *testing.T) {
 	if output := log.String(); !strings.Contains(output, "boom") {
 		t.Fatalf("log = %q, want panic", output)
 	}
+}
+
+func TestRecoveryUsesContextErrorFactory(t *testing.T) {
+	log := &memoryLogger{}
+	e := fox.New(&fox.Config{Addr: ":0", Mode: fox.ModeTest, PrintRoutes: boolPtr(false)}, &recoveryCustomErrors{})
+	e.Use(RecoveryWithConfig(RecoveryConfig{Logger: log}))
+	e.GET("/panic", func(c *fox.Context) {
+		panic("boom")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	var resp fox.Response
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Code != 20001 || resp.Message != "custom internal error" {
+		t.Fatalf("response = %+v, want custom internal error", resp)
+	}
+}
+
+type recoveryCustomErrors struct {
+	fox.Err
+}
+
+func (recoveryCustomErrors) ErrServer() *coreerrors.Error {
+	return coreerrors.NewWithStatus(20001, http.StatusInternalServerError, "custom internal error")
 }

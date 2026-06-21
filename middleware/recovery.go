@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"net/http"
 	"runtime/debug"
 
 	"github.com/surge-go/fox"
@@ -38,12 +37,7 @@ func RecoveryWithConfig(cfg RecoveryConfig) fox.HandlerFunc {
 					c.Abort()
 					return
 				}
-				c.AbortWithStatusJSON(http.StatusInternalServerError, fox.NewResponse(
-					http.StatusInternalServerError,
-					nil,
-					"internal server error",
-					c.TraceID(),
-				))
+				c.Fail(c.Errors().ErrServer())
 			}
 		}()
 		c.Next()

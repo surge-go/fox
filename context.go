@@ -2,6 +2,7 @@ package fox
 
 import (
 	"context"
+	stderrors "errors"
 	"io/fs"
 	"mime/multipart"
 	"net/http"
@@ -26,6 +27,20 @@ func (c *Context) RawRequest() *http.Request { return c.ctx.Request }
 // RawWriter 返回底层 http.ResponseWriter。
 func (c *Context) RawWriter() http.ResponseWriter {
 	return c.ctx.Writer
+}
+
+// SetRawWriter 替换底层响应写入器。
+//
+// writer 必须实现 Gin 兼容的 ResponseWriter；该方法主要供需要包装响应写入器的中间件使用。
+func (c *Context) SetRawWriter(writer http.ResponseWriter) {
+	if writer == nil {
+		return
+	}
+	ginWriter, ok := writer.(gin.ResponseWriter)
+	if !ok {
+		panic("fox: raw writer must implement gin.ResponseWriter")
+	}
+	c.ctx.Writer = ginWriter
 }
 
 // WithContext 替换当前请求携带的标准库 context.Context。
@@ -57,6 +72,12 @@ func (c *Context) Err() error { return c.StdContext().Err() }
 
 // Value 实现 context.Context 接口。
 func (c *Context) Value(key any) any { return c.StdContext().Value(key) }
+
+// SetRequestID 设置当前请求的 request id。
+func (c *Context) SetRequestID(id string) { c.Set(RequestIDKey, id) }
+
+// RequestID 返回当前请求的 request id。
+func (c *Context) RequestID() string { return c.GetString(RequestIDKey) }
 
 // SetTraceID 设置当前请求的 trace id。
 func (c *Context) SetTraceID(id string) { c.Set(TraceIDKey, id) }
@@ -168,6 +189,11 @@ func (c *Context) BindURI(obj any) error { return c.bindOrFail(c.ctx.ShouldBindU
 // bindOrFail 统一处理绑定错误，失败时写入标准错误响应并中止请求。
 func (c *Context) bindOrFail(err error) error {
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if stderrors.As(err, &maxBytesErr) {
+			c.writeErrorResponse(c.errorFactory().ErrPayloadTooLarge(), c.TraceID())
+			return err
+		}
 		c.Fail(c.errorFactory().ErrInvalidParams())
 	}
 	return err
